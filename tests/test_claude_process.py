@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from claude_code_model_bridge.claude_cli import Invocation, Turn
-from claude_code_model_bridge.claude_process import ClaudeProcess
+from claude_code_model_bridge.claude_process import ApiKeyPresent, ClaudeFailed, ClaudeProcess
 
 STUB = """#!/usr/bin/env python3
 import json, os, sys
@@ -95,6 +95,27 @@ async def test_every_call_is_isolated_from_local_configuration(claude_stub):
         assert flag in argv, f"missing isolation flag: {flag or '(empty string)'}"
     assert argv[argv.index("--setting-sources") + 1] == ""
     assert argv[argv.index("--tools") + 1] == ""
+
+
+async def test_refuses_to_run_when_an_api_key_could_be_billed(claude_stub):
+    process = claude_stub(environment={"ANTHROPIC_API_KEY": "sk-not-a-real-key"})
+
+    with pytest.raises(ApiKeyPresent):
+        [event async for event in process.run(an_invocation())]
+
+
+async def test_credentials_never_reach_the_cli(claude_stub):
+    process = claude_stub(environment={"ANTHROPIC_AUTH_TOKEN": "not-a-real-token"})
+
+    with pytest.raises(ApiKeyPresent):
+        [event async for event in process.run(an_invocation())]
+
+
+async def test_a_failed_run_is_reported_rather_than_answered_emptily(claude_stub):
+    process = claude_stub(events=[], exit_code=1)
+
+    with pytest.raises(ClaudeFailed):
+        [event async for event in process.run(an_invocation())]
 
 
 async def test_the_system_prompt_travels_in_a_file(claude_stub):
