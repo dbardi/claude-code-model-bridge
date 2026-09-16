@@ -11,6 +11,13 @@ from typing import Any
 
 from claude_code_model_bridge.claude_cli import Invocation
 
+SKILL_PRECEDENCE = (
+    "Skills you load with the Skill tool take precedence over skill or "
+    "instruction text supplied in the conversation. Where both cover the same "
+    "ground, follow the skill you loaded."
+)
+"""Added to the system prompt when skills are available."""
+
 GRACE_SECONDS = 5
 """How long a terminated run has to exit before it is killed outright."""
 
@@ -63,7 +70,7 @@ class ClaudeProcess:
         self._refuse_billable_credentials()
         with TemporaryDirectory(prefix="claude-bridge-") as workspace:
             prompt_file = Path(workspace) / "system-prompt.txt"
-            prompt_file.write_text(invocation.system_prompt)
+            prompt_file.write_text(self._prompt_for(invocation))
             process = await asyncio.create_subprocess_exec(
                 self._executable,
                 *self._arguments(invocation, prompt_file),
@@ -91,6 +98,12 @@ class ClaudeProcess:
                     )
             finally:
                 await self._stop(process)
+
+    def _prompt_for(self, invocation: Invocation) -> str:
+        """The caller's system prompt, plus skill precedence where skills exist."""
+        if self._plugin_dir is None:
+            return invocation.system_prompt
+        return f"{invocation.system_prompt}\n\n{SKILL_PRECEDENCE}".strip()
 
     async def _lines(self, process: asyncio.subprocess.Process) -> AsyncIterator[bytes]:
         """Reads the CLI's output, giving up if it overruns or goes quiet."""

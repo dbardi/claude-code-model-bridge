@@ -233,6 +233,11 @@ did. Skills that need to act belong in the client, which runs tool calls.
 Configuring a directory allows exactly one tool, `Skill`, which loads
 instructions and runs nothing.
 
+**Loaded skills outrank skill text from the client.** A client may pass its
+own skill or instruction text in the conversation, and a line is added to the
+system prompt saying the loaded skill wins where both cover the same ground.
+Nothing is added when no plugin directory is configured.
+
 ## Request fields
 
 The bridge reads `model`, `messages`, `tools`, `tool_choice`, `stream`,
