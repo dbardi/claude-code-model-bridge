@@ -45,6 +45,28 @@ def failed_result(text: str) -> dict:
     }
 
 
+async def test_an_answer_without_structured_output_is_still_an_answer():
+    """Losing the structured wrapper should cost the tool calls, not the reply."""
+    answered = result_event("Here is what I found.")
+    answered.pop("structured_output", None)
+    client = bridge_for([answered])
+
+    completion = await say_ok(client)
+
+    assert completion.choices[0].message.content == "Here is what I found."
+    assert completion.choices[0].message.tool_calls is None
+    assert completion.choices[0].finish_reason == "stop"
+
+
+async def test_an_empty_answer_is_passed_through():
+    """Callers have their own handling for an empty reply; do not invent one."""
+    client = bridge_for([result_event("")])
+
+    completion = await say_ok(client)
+
+    assert completion.choices[0].message.content == ""
+
+
 def rate_limit_event(resets_at: int, status: str = "rejected") -> dict:
     """The CLI's report of the subscription usage window."""
     return {
