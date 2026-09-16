@@ -20,7 +20,9 @@ def build_invocation(request: dict[str, Any], resolution: Resolution) -> Invocat
     return Invocation(
         model=resolution.cli_model,
         turns=_turns(messages),
-        output_schema=_output_schema(request.get("tools") or []),
+        output_schema=_output_schema(
+            request.get("tools") or [], request.get("tool_choice")
+        ),
         system_prompt=_system_prompt(messages),
         effort=resolution.effort or request.get("reasoning_effort"),
     )
@@ -124,12 +126,18 @@ def _tool_result_text(message: dict[str, Any], tool_names: dict[str, str]) -> st
     return f"[tool_result id={call_id} name={name}]\n{_content_text(message.get('content'))}"
 
 
-def _output_schema(tools: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """Constrains the answer to prose plus calls to the declared tools."""
-    if not tools:
+def _output_schema(
+    tools: list[dict[str, Any]], tool_choice: Any = None
+) -> dict[str, Any] | None:
+    """Constrains the answer to prose plus calls to the declared tools.
+
+    `tool_choice` narrows that: a named tool is the only one offered,
+    `required` demands a call, `none` drops the schema.
+    """
+    if not tools or tool_choice == "none":
         return None
-    names = [tool["function"]["name"] for tool in tools]
-    return {
+    names = _offered_names(tools, tool_choice)
+    schema = {
         "type": "object",
         "properties": {
             "content": {"type": "string"},
@@ -147,6 +155,24 @@ def _output_schema(tools: list[dict[str, Any]]) -> dict[str, Any] | None:
         },
         "required": ["content", "tool_calls"],
     }
+    if tool_choice == "required":
+        schema["properties"]["tool_calls"]["minItems"] = 1
+    return schema
+
+
+def _offered_names(tools: list[dict[str, Any]], tool_choice: Any) -> list[str]:
+    """The tool names the model may choose from."""
+    declared = [tool["function"]["name"] for tool in tools]
+    if not isinstance(tool_choice, dict):
+        return declared
+    named = tool_choice.get("function", {}).get("name")
+    if named not in declared:
+        raise UndeclaredTool(named)
+    return [named]
+
+
+class UndeclaredTool(Exception):
+    """Raised when a request requires a tool it did not declare."""
 
 
 def completion_from_events(events: list[dict[str, Any]], model: str) -> dict[str, Any]:

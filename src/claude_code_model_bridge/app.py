@@ -13,6 +13,7 @@ from claude_code_model_bridge.claude_cli import ClaudeCli
 from claude_code_model_bridge.failures import failure_from, failure_in
 from claude_code_model_bridge.request_log import RequestRecord
 from claude_code_model_bridge.translation import (
+    UndeclaredTool,
     build_invocation,
     completion_from_events,
     stream_chunks,
@@ -32,7 +33,13 @@ def create_app(
             resolution = catalog.resolve(body["model"])
         except UnknownModel:
             return _unknown_model(body["model"])
-        invocation = build_invocation(body, resolution)
+        try:
+            invocation = build_invocation(body, resolution)
+        except UndeclaredTool as undeclared:
+            return _bad_request(
+                f"The tool `{undeclared}` was required but not declared in `tools`.",
+                param="tool_choice",
+            )
         streaming = bool(body.get("stream"))
         record = RequestRecord(
             model=body["model"],
@@ -125,6 +132,20 @@ def create_app(
         record.finished(failure.code)
         return JSONResponse(
             failure.body(), status_code=failure.status, headers=failure.headers()
+        )
+
+    def _bad_request(message: str, param: str) -> JSONResponse:
+        """Reports a request the bridge cannot carry out as asked."""
+        return JSONResponse(
+            {
+                "error": {
+                    "message": message,
+                    "type": "invalid_request_error",
+                    "param": param,
+                    "code": "invalid_value",
+                }
+            },
+            status_code=400,
         )
 
     def _unknown_model(model: str) -> JSONResponse:
