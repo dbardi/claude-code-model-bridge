@@ -30,11 +30,48 @@ def _system_prompt(messages: list[dict[str, Any]]) -> str:
 
 
 def _turns(messages: list[dict[str, Any]]) -> tuple[Turn, ...]:
-    return tuple(
-        Turn(role=message["role"], text=message["content"])
+    """Renders the conversation, tool history included, as plain turns.
+
+    Tool calls and their results are written as labeled text rather than
+    native tool-use blocks: see docs/adr/0003. Tool results are attributed
+    to the user, the only role the CLI accepts them under.
+    """
+    tool_names = _tool_names(messages)
+    turns = []
+    for message in messages:
+        role = message["role"]
+        if role in ("system", "developer"):
+            continue
+        if role == "tool":
+            turns.append(Turn(role="user", text=_tool_result_text(message, tool_names)))
+            continue
+        turns.append(Turn(role=role, text=_message_text(message)))
+    return tuple(turns)
+
+
+def _tool_names(messages: list[dict[str, Any]]) -> dict[str, str]:
+    """Maps a tool call id to its name, so a result can name the tool it came from."""
+    return {
+        call["id"]: call["function"]["name"]
         for message in messages
-        if message["role"] not in ("system", "developer")
-    )
+        for call in message.get("tool_calls") or []
+    }
+
+
+def _message_text(message: dict[str, Any]) -> str:
+    parts = [message.get("content") or ""]
+    parts += [
+        f"[tool_call id={call['id']} name={call['function']['name']} "
+        f"arguments={call['function']['arguments']}]"
+        for call in message.get("tool_calls") or []
+    ]
+    return "\n".join(part for part in parts if part)
+
+
+def _tool_result_text(message: dict[str, Any], tool_names: dict[str, str]) -> str:
+    call_id = message.get("tool_call_id", "")
+    name = tool_names.get(call_id, "unknown")
+    return f"[tool_result id={call_id} name={name}]\n{message.get('content') or ''}"
 
 
 def _output_schema(tools: list[dict[str, Any]]) -> dict[str, Any] | None:
