@@ -8,6 +8,9 @@ from typing import Any
 
 from claude_code_model_bridge.claude_cli import Invocation, Turn
 
+CONTINUE = "Continue."
+"""Closes a conversation that ends on an assistant turn, which Claude cannot answer."""
+
 
 def build_invocation(request: dict[str, Any]) -> Invocation:
     """Turns an OpenAI chat completion request into a single Claude invocation."""
@@ -46,6 +49,8 @@ def _turns(messages: list[dict[str, Any]]) -> tuple[Turn, ...]:
             _append(turns, Turn(role="user", text=_tool_result_text(message, tool_names)))
             continue
         _append(turns, Turn(role=role, text=_message_text(message)))
+    if turns and turns[-1].role == "assistant":
+        _append(turns, Turn(role="user", text=CONTINUE))
     return tuple(turns)
 
 
