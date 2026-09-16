@@ -102,3 +102,25 @@ async def test_a_conversation_ending_on_an_assistant_turn_gets_a_closing_user_tu
     turns = claude.invocations[0].turns
     assert turns[-1].role == "user"
     assert turns[-1].text
+
+
+async def test_an_image_reaches_claude_as_image_data(bridge):
+    client, claude = bridge([result_event("a cat")])
+    png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg=="
+
+    await client.chat.completions.create(
+        model=MODEL,
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "What is this?"},
+                    {"type": "image_url", "image_url": {"url": png}},
+                ],
+            }
+        ],
+    )
+
+    turn = claude.invocations[0].turns[0]
+    assert "What is this?" in turn.text
+    assert turn.images == (("image/png", "iVBORw0KGgoAAAANSUhEUg=="),)
