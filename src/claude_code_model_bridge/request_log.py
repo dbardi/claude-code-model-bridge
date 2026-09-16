@@ -14,7 +14,13 @@ class RequestRecord:
     Records model, duration, tokens and outcome. Never prompts or answers.
     """
 
-    def __init__(self, model: str, tools: bool, streaming: bool) -> None:
+    def __init__(
+        self,
+        model: str,
+        tools: bool,
+        streaming: bool,
+        ignored: list[str] | None = None,
+    ) -> None:
         self._facts: dict[str, Any] = {
             "model": model,
             "tools": tools,
@@ -23,6 +29,8 @@ class RequestRecord:
             "prompt_tokens": 0,
             "completion_tokens": 0,
         }
+        if ignored:
+            self._facts["ignored"] = ignored
         self._started = time.monotonic()
 
     def note_usage(self, usage: dict[str, Any]) -> None:
