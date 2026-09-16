@@ -7,6 +7,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, StreamingResponse
 from starlette.routing import Route
 
+from claude_code_model_bridge.catalog import ModelCatalog
 from claude_code_model_bridge.claude_cli import ClaudeCli
 from claude_code_model_bridge.translation import (
     build_invocation,
@@ -15,7 +16,7 @@ from claude_code_model_bridge.translation import (
 )
 
 
-def create_app(claude_cli: ClaudeCli) -> Starlette:
+def create_app(claude_cli: ClaudeCli, catalog: ModelCatalog) -> Starlette:
     """Builds the application, taking the Claude seam as a dependency."""
 
     async def create_chat_completion(request: Request) -> JSONResponse:
@@ -40,6 +41,12 @@ def create_app(claude_cli: ClaudeCli) -> Starlette:
             yield f"data: {json.dumps(chunk)}\n\n"
         yield "data: [DONE]\n\n"
 
+    async def list_models(request: Request) -> JSONResponse:
+        return JSONResponse(catalog.listing())
+
     return Starlette(
-        routes=[Route("/v1/chat/completions", create_chat_completion, methods=["POST"])]
+        routes=[
+            Route("/v1/chat/completions", create_chat_completion, methods=["POST"]),
+            Route("/v1/models", list_models, methods=["GET"]),
+        ]
     )
