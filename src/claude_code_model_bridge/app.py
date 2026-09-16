@@ -23,14 +23,20 @@ def create_app(claude_cli: ClaudeCli) -> Starlette:
         invocation = build_invocation(body)
         if body.get("stream"):
             return StreamingResponse(
-                _server_sent_events(claude_cli.run(invocation), model=body["model"]),
+                _server_sent_events(
+                    claude_cli.run(invocation),
+                    model=body["model"],
+                    include_usage=bool(
+                        (body.get("stream_options") or {}).get("include_usage")
+                    ),
+                ),
                 media_type="text/event-stream",
             )
         events = [event async for event in claude_cli.run(invocation)]
         return JSONResponse(completion_from_events(events, model=body["model"]))
 
-    async def _server_sent_events(events, model: str):
-        async for chunk in stream_chunks(events, model=model):
+    async def _server_sent_events(events, model: str, include_usage: bool):
+        async for chunk in stream_chunks(events, model=model, include_usage=include_usage):
             yield f"data: {json.dumps(chunk)}\n\n"
         yield "data: [DONE]\n\n"
 

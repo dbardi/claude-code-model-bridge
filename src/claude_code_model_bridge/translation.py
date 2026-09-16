@@ -42,7 +42,7 @@ def _answer(events: list[dict[str, Any]]) -> str:
 
 
 async def stream_chunks(
-    events: AsyncIterator[dict[str, Any]], model: str
+    events: AsyncIterator[dict[str, Any]], model: str, include_usage: bool = False
 ) -> AsyncIterator[dict[str, Any]]:
     """Emits an OpenAI chunk for each fragment of text Claude produces."""
     completion_id = f"chatcmpl-{uuid.uuid4().hex}"
@@ -58,11 +58,19 @@ async def stream_chunks(
             ],
         }
 
+    usage = None
     async for event in events:
         text = _text_fragment(event)
         if text:
             yield chunk({"content": text}, None)
+        if event.get("type") == "result":
+            usage = _usage(event)
     yield chunk({}, "stop")
+    if include_usage and usage is not None:
+        final = chunk({}, None)
+        final["choices"] = []
+        final["usage"] = usage
+        yield final
 
 
 def _text_fragment(event: dict[str, Any]) -> str:
@@ -73,3 +81,25 @@ def _text_fragment(event: dict[str, Any]) -> str:
         return ""
     delta = inner.get("delta", {})
     return delta.get("text", "") if delta.get("type") == "text_delta" else ""
+
+
+def _usage(result_event: dict[str, Any]) -> dict[str, Any]:
+    """Maps the CLI's token counts onto the OpenAI usage fields.
+
+    Cache reads and cache writes are prompt tokens: the CLI reports them
+    separately, the OpenAI protocol folds them into `prompt_tokens`.
+    """
+    counts = result_event.get("usage", {})
+    cache_read = counts.get("cache_read_input_tokens", 0)
+    prompt_tokens = (
+        counts.get("input_tokens", 0)
+        + counts.get("cache_creation_input_tokens", 0)
+        + cache_read
+    )
+    completion_tokens = counts.get("output_tokens", 0)
+    return {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": prompt_tokens + completion_tokens,
+        "prompt_tokens_details": {"cached_tokens": cache_read},
+    }
