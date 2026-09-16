@@ -1,6 +1,6 @@
 """Behavior at the HTTP seam: what Hermes sees when it asks for a completion."""
 
-from tests.conftest import assistant_text_event, result_event
+from tests.cli_events import assistant_text_event, result_event
 
 
 async def test_answers_with_the_text_claude_produced(bridge):
