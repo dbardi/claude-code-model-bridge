@@ -64,3 +64,15 @@ def structured_result_event(
     event["structured_output"] = {"content": content, "tool_calls": tool_calls}
     event["stop_reason"] = "tool_use"
     return event
+
+
+def json_delta_event(partial_json: str) -> dict[str, Any]:
+    """A streamed fragment of schema-validated output, as JSON text."""
+    return {
+        "type": "stream_event",
+        "event": {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "input_json_delta", "partial_json": partial_json},
+        },
+    }
