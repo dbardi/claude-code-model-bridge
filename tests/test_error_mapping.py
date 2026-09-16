@@ -1,8 +1,10 @@
 """How failures reach a caller: the status decides what the caller does next."""
 
+import time
+
 import httpx
 import pytest
-from openai import APIStatusError, AsyncOpenAI, AuthenticationError
+from openai import APIStatusError, AsyncOpenAI, AuthenticationError, RateLimitError
 
 from claude_code_model_bridge.app import create_app
 from claude_code_model_bridge.catalog import ModelCatalog
@@ -11,6 +13,7 @@ from claude_code_model_bridge.claude_process import (
     ClaudeFailed,
     ClaudeTimedOut,
 )
+from tests.cli_events import result_event
 from tests.conftest import FakeClaudeCli
 from tests.models import CATALOG_YAML, MODEL
 
@@ -40,6 +43,46 @@ def failed_result(text: str) -> dict:
         "stop_reason": "stop_sequence",
         "usage": {"input_tokens": 0, "output_tokens": 0},
     }
+
+
+def rate_limit_event(resets_at: int, status: str = "rejected") -> dict:
+    """The CLI's report of the subscription usage window."""
+    return {
+        "type": "rate_limit_event",
+        "rate_limit_info": {
+            "status": status,
+            "resetsAt": resets_at,
+            "rateLimitType": "five_hour",
+        },
+    }
+
+
+async def test_an_exhausted_usage_window_says_when_to_come_back():
+    """A caller that honors Retry-After waits exactly as long as needed."""
+    resets_at = int(time.time()) + 600
+    client = bridge_for(
+        [
+            rate_limit_event(resets_at),
+            failed_result("Claude usage limit reached."),
+        ]
+    )
+
+    with pytest.raises(RateLimitError) as failure:
+        await say_ok(client)
+
+    retry_after = int(failure.value.response.headers["retry-after"])
+    assert 540 <= retry_after <= 600
+
+
+async def test_an_allowed_usage_window_is_not_a_rate_limit():
+    """Every successful run also reports the window; that is not a failure."""
+    client = bridge_for(
+        [rate_limit_event(int(time.time()) + 600, status="allowed"), result_event("ok")]
+    )
+
+    completion = await say_ok(client)
+
+    assert completion.choices[0].message.content == "ok"
 
 
 class RaisingClaudeCli:
