@@ -52,3 +52,37 @@ async def test_tool_history_is_replayed_as_text(bridge):
     assert turns[2].role == "user"
     assert "[tool_result id=call_1 name=terminal]" in turns[2].text
     assert "467G available" in turns[2].text
+
+
+async def test_consecutive_turns_from_one_role_merge(bridge):
+    client, claude = bridge([result_event("done")])
+
+    await client.chat.completions.create(
+        model=MODEL,
+        messages=[
+            {"role": "user", "content": "Check disk and memory."},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "terminal", "arguments": '{"command": "df"}'},
+                    },
+                    {
+                        "id": "call_2",
+                        "type": "function",
+                        "function": {"name": "terminal", "arguments": '{"command": "free"}'},
+                    },
+                ],
+            },
+            {"role": "tool", "tool_call_id": "call_1", "content": "467G free"},
+            {"role": "tool", "tool_call_id": "call_2", "content": "8G free"},
+        ],
+    )
+
+    turns = claude.invocations[0].turns
+    assert [turn.role for turn in turns] == ["user", "assistant", "user"]
+    assert "467G free" in turns[2].text
+    assert "8G free" in turns[2].text
