@@ -50,3 +50,28 @@ async def test_prose_streams_out_of_the_accumulating_json(bridge):
     text, _ = await collect(stream)
 
     assert text == "The ocean covers most of Earth's surface."
+
+
+async def test_escapes_split_across_fragments_survive(bridge):
+    answer = 'He said "café"\nfine.'
+    client, _ = bridge(
+        [
+            json_delta_event('{"content": "He said \\'),
+            json_delta_event('"caf'),
+            json_delta_event("\\u00"),
+            json_delta_event('e9\\" \\'),
+            json_delta_event('u000afine."'),
+            json_delta_event(', "tool_calls": []}'),
+            structured_result_event(answer, []),
+        ]
+    )
+
+    stream = await client.chat.completions.create(
+        model=MODEL,
+        messages=[{"role": "user", "content": "Quote something."}],
+        tools=[TERMINAL_TOOL],
+        stream=True,
+    )
+    text, _ = await collect(stream)
+
+    assert text == 'He said "café" \nfine.'
