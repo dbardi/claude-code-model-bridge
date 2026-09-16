@@ -75,17 +75,25 @@ class ModelCatalog:
 
     def listing(self) -> dict[str, Any]:
         """The catalog as an OpenAI model list."""
-        return {
-            "object": "list",
-            "data": [
-                {
-                    "id": entry.id,
-                    "object": "model",
-                    "created": 0,
-                    "owned_by": "claude-code-model-bridge",
-                    "context_length": entry.context_length,
-                    "context_window": entry.context_length,
-                }
-                for entry in self._entries
-            ],
-        }
+        return {"object": "list", "data": [_listed(entry) for entry in self._entries]}
+
+
+def _listed(entry: ModelEntry) -> dict[str, Any]:
+    """One model as a listing entry.
+
+    Context window and vision support are each spelled several ways, since
+    clients read different fields for them.
+    """
+    modalities = ["text", "image"] if entry.supports_vision else ["text"]
+    return {
+        "id": entry.id,
+        "object": "model",
+        "created": 0,
+        "owned_by": "claude-code-model-bridge",
+        "context_length": entry.context_length,
+        "context_window": entry.context_length,
+        "max_input_tokens": entry.context_length,
+        "supports_vision": entry.supports_vision,
+        "capabilities": ["vision"] if entry.supports_vision else [],
+        "architecture": {"input_modalities": modalities, "output_modalities": ["text"]},
+    }
