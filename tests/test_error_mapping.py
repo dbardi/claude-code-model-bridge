@@ -2,10 +2,15 @@
 
 import httpx
 import pytest
-from openai import AsyncOpenAI, AuthenticationError
+from openai import APIStatusError, AsyncOpenAI, AuthenticationError
 
 from claude_code_model_bridge.app import create_app
 from claude_code_model_bridge.catalog import ModelCatalog
+from claude_code_model_bridge.claude_process import (
+    ApiKeyPresent,
+    ClaudeFailed,
+    ClaudeTimedOut,
+)
 from tests.conftest import FakeClaudeCli
 from tests.models import CATALOG_YAML, MODEL
 
@@ -35,6 +40,67 @@ def failed_result(text: str) -> dict:
         "stop_reason": "stop_sequence",
         "usage": {"input_tokens": 0, "output_tokens": 0},
     }
+
+
+class RaisingClaudeCli:
+    """Stands in for a CLI that fails partway rather than answering."""
+
+    def __init__(self, error: Exception) -> None:
+        self._error = error
+
+    async def run(self, invocation):
+        raise self._error
+        yield  # pragma: no cover - makes this an async generator
+
+
+def bridge_raising(error: Exception) -> AsyncOpenAI:
+    app = create_app(
+        claude_cli=RaisingClaudeCli(error), catalog=ModelCatalog.from_yaml(CATALOG_YAML)
+    )
+    return AsyncOpenAI(
+        api_key="unused",
+        base_url=BASE_URL,
+        max_retries=0,
+        http_client=httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url=BASE_URL
+        ),
+    )
+
+
+async def say_ok(client):
+    return await client.chat.completions.create(
+        model=MODEL, messages=[{"role": "user", "content": "Say ok."}]
+    )
+
+
+async def test_a_crashed_run_is_reported_as_retryable():
+    """A crash is usually transient, so the caller should be free to try again."""
+    client = bridge_raising(ClaudeFailed("claude exited with 1"))
+
+    with pytest.raises(APIStatusError) as failure:
+        await say_ok(client)
+
+    assert failure.value.status_code == 502
+
+
+async def test_a_run_that_outlived_its_limits_is_reported_as_a_timeout():
+    client = bridge_raising(ClaudeTimedOut("claude ran longer than 900s"))
+
+    with pytest.raises(APIStatusError) as failure:
+        await say_ok(client)
+
+    assert failure.value.status_code == 504
+
+
+async def test_a_billable_credential_stops_the_bridge_loudly():
+    """This is a configuration mistake on the machine, not a passing fault."""
+    client = bridge_raising(ApiKeyPresent("ANTHROPIC_API_KEY is set."))
+
+    with pytest.raises(APIStatusError) as failure:
+        await say_ok(client)
+
+    assert failure.value.status_code == 500
+    assert "subscription" in str(failure.value).lower()
 
 
 async def test_not_being_logged_in_is_an_authentication_failure():
