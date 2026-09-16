@@ -81,13 +81,110 @@ completion = client.chat.completions.create(
 )
 ```
 
-For an agent harness that takes a provider and a base URL, configure it as a
-custom OpenAI-compatible endpoint pointing at `http://127.0.0.1:8765/v1`, with
-any catalog id as the model.
-
 Two endpoints are served: `GET /v1/models` and `POST /v1/chat/completions`
 (streaming and not). Streaming, native tool calls, images and token usage all
 work as a client expects.
+
+## Using it with an agent
+
+An agent harness needs three things, whatever its configuration format:
+
+- **Base URL** `http://127.0.0.1:8765/v1`
+- **API key**: any non-empty string. The bridge ignores it and authenticates as
+  whoever the CLI is logged in as. Harnesses that insist on one accept
+  something like `not-used`.
+- **Model**: any id from the catalog, such as `claude-opus-5`.
+
+The harness runs the tools. The bridge asks for tool calls and never executes
+one, so the harness keeps its own tools, permissions and approvals.
+
+Two settings are worth checking in the harness rather than here. Its **request
+timeout** should exceed the bridge's own cap of 15 minutes, so the bridge is
+what gives up first and can explain why. Its **retry policy** should honor
+`Retry-After`, which the bridge sends on `429` with the real reset time of the
+subscription window.
+
+### Adding it alongside an existing model
+
+Prefer adding the bridge as an extra provider over replacing the harness's
+default. A harness you use daily keeps working, you choose the bridge per
+session, and no single edit can take your assistant offline.
+
+### Hermes Agent
+
+Add an entry next to the existing providers in `~/.hermes/config.yaml`:
+
+```yaml
+custom_providers:
+  - base_url: http://127.0.0.1:8765/v1
+    id: claude-bridge
+    name: Claude Bridge
+    models:
+      claude-opus-5:
+        context_length: 1000000
+        supports_vision: true
+      claude-haiku-4-5:
+        context_length: 200000
+        supports_vision: true
+```
+
+Then choose it per session, leaving the default untouched:
+
+```bash
+hermes --provider claude-bridge -m claude-opus-5
+hermes -z "summarize this repo" --provider claude-bridge -m claude-haiku-4-5
+```
+
+To make it the default instead, set `model.provider` to `custom`,
+`model.base_url` to the bridge, and `model.default` to a catalog id. Back up
+the file first: that replaces whatever model the harness used before.
+
+Hermes reads `context_length` from `GET /v1/models`, and refuses to start
+against a model whose window looks smaller than 64,000 tokens, so every
+catalog entry advertises a real window.
+
+### OpenClaw
+
+Add a provider under `models.providers` in the OpenClaw config, using the
+`openai-completions` adapter:
+
+```json5
+{
+  models: {
+    providers: {
+      "claude-bridge": {
+        baseUrl: "http://127.0.0.1:8765/v1",
+        apiKey: "not-used",
+        api: "openai-completions",
+        timeoutSeconds: 1200,
+        models: [
+          {
+            id: "claude-opus-5",
+            name: "Claude Opus 5 (bridge)",
+            contextWindow: 1000000,
+            maxTokens: 64000,
+          },
+        ],
+      },
+    },
+  },
+}
+```
+
+Reference it as `claude-bridge/claude-opus-5` wherever a model is named, such
+as `agents.defaults.model.primary`.
+
+### Anything else
+
+A harness that speaks the OpenAI protocol needs no special support. Look for a
+setting named base URL, API base, or custom or OpenAI-compatible provider,
+point it at `http://127.0.0.1:8765/v1`, and give it a catalog id as the model.
+Editors and libraries that accept an OpenAI base URL work the same way.
+
+If a harness lists models by calling `GET /v1/models`, the catalog appears
+there. If it expects a model it has never heard of to be declared up front,
+add the id and its context window to that harness's own configuration, as in
+the two examples above.
 
 ## Model ids
 
