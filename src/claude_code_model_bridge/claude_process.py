@@ -140,7 +140,7 @@ class ClaudeProcess:
             "",
             "--strict-mcp-config",
             "--tools",
-            "",
+            "Skill" if self._plugin_dir is not None else "",
             "--no-session-persistence",
             "--input-format",
             "stream-json",
