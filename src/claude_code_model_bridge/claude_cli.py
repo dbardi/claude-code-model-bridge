@@ -7,10 +7,15 @@ from typing import Any, Protocol
 
 @dataclass(frozen=True)
 class Turn:
-    """One conversation turn as the CLI's stream-json input expects it."""
+    """One conversation turn as the CLI's stream-json input expects it.
+
+    Each image is a (media type, base64 data) pair, ready to become an
+    image content block.
+    """
 
     role: str
     text: str
+    images: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)

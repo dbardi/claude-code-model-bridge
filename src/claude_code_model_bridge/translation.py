@@ -48,7 +48,14 @@ def _turns(messages: list[dict[str, Any]]) -> tuple[Turn, ...]:
         if role == "tool":
             _append(turns, Turn(role="user", text=_tool_result_text(message, tool_names)))
             continue
-        _append(turns, Turn(role=role, text=_message_text(message)))
+        _append(
+            turns,
+            Turn(
+                role=role,
+                text=_message_text(message),
+                images=_images(message.get("content")),
+            ),
+        )
     if turns and turns[-1].role == "assistant":
         _append(turns, Turn(role="user", text=CONTINUE))
     return tuple(turns)
@@ -75,8 +82,29 @@ def _tool_names(messages: list[dict[str, Any]]) -> dict[str, str]:
     }
 
 
+def _images(content: Any) -> tuple[tuple[str, str], ...]:
+    """Pulls inline image data out of a multi-part message.
+
+    Only `data:` URLs are carried: fetching a remote image would mean the
+    bridge making network requests of its own, which it never does.
+    """
+    if not isinstance(content, list):
+        return ()
+    images = []
+    for part in content:
+        if part.get("type") != "image_url":
+            continue
+        url = part.get("image_url", {}).get("url", "")
+        if not url.startswith("data:"):
+            continue
+        header, _, data = url.partition(",")
+        media_type = header.removeprefix("data:").removesuffix(";base64")
+        images.append((media_type, data))
+    return tuple(images)
+
+
 def _message_text(message: dict[str, Any]) -> str:
-    parts = [message.get("content") or ""]
+    parts = [_content_text(message.get("content"))]
     parts += [
         f"[tool_call id={call['id']} name={call['function']['name']} "
         f"arguments={call['function']['arguments']}]"
@@ -85,10 +113,21 @@ def _message_text(message: dict[str, Any]) -> str:
     return "\n".join(part for part in parts if part)
 
 
+def _content_text(content: Any) -> str:
+    """Flattens message content, which is either a string or content parts."""
+    if isinstance(content, list):
+        return "\n".join(
+            part.get("text", "")
+            for part in content
+            if part.get("type") == "text"
+        )
+    return content or ""
+
+
 def _tool_result_text(message: dict[str, Any], tool_names: dict[str, str]) -> str:
     call_id = message.get("tool_call_id", "")
     name = tool_names.get(call_id, "unknown")
-    return f"[tool_result id={call_id} name={name}]\n{message.get('content') or ''}"
+    return f"[tool_result id={call_id} name={name}]\n{_content_text(message.get('content'))}"
 
 
 def _output_schema(tools: list[dict[str, Any]]) -> dict[str, Any] | None:
