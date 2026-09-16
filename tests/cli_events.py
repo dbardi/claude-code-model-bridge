@@ -2,13 +2,15 @@
 
 from typing import Any
 
+from tests.models import MODEL
 
-def assistant_text_event(text: str) -> dict[str, Any]:
+
+def assistant_text_event(text: str, model: str = MODEL) -> dict[str, Any]:
     """The CLI's `assistant` event, as emitted by `--output-format stream-json`."""
     return {
         "type": "assistant",
         "message": {
-            "model": "claude-opus-5",
+            "model": model,
             "id": "msg_01Test",
             "type": "message",
             "role": "assistant",
@@ -18,7 +20,14 @@ def assistant_text_event(text: str) -> dict[str, Any]:
     }
 
 
-def result_event(text: str) -> dict[str, Any]:
+def result_event(
+    text: str,
+    *,
+    input_tokens: int = 12,
+    cache_creation_input_tokens: int = 0,
+    cache_read_input_tokens: int = 0,
+    output_tokens: int = 3,
+) -> dict[str, Any]:
     """The CLI's terminating `result` event."""
     return {
         "type": "result",
@@ -27,10 +36,10 @@ def result_event(text: str) -> dict[str, Any]:
         "result": text,
         "stop_reason": "end_turn",
         "usage": {
-            "input_tokens": 12,
-            "cache_creation_input_tokens": 0,
-            "cache_read_input_tokens": 0,
-            "output_tokens": 3,
+            "input_tokens": input_tokens,
+            "cache_creation_input_tokens": cache_creation_input_tokens,
+            "cache_read_input_tokens": cache_read_input_tokens,
+            "output_tokens": output_tokens,
         },
     }
 
