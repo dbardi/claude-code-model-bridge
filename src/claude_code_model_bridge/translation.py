@@ -233,6 +233,7 @@ async def stream_chunks(
         }
 
     usage = None
+    tool_calls: list[dict[str, Any]] = []
     prose = StringFieldReader("content")
     async for event in events:
         text = _text_fragment(event) or prose.feed(_json_fragment(event))
@@ -240,7 +241,10 @@ async def stream_chunks(
             yield chunk({"content": text}, None)
         if event.get("type") == "result":
             usage = _usage(event)
-    yield chunk({}, "stop")
+            tool_calls = _tool_calls(event)
+    for index, call in enumerate(tool_calls):
+        yield chunk({"tool_calls": [{"index": index, **call}]}, None)
+    yield chunk({}, "tool_calls" if tool_calls else "stop")
     if include_usage and usage is not None:
         final = chunk({}, None)
         final["choices"] = []
