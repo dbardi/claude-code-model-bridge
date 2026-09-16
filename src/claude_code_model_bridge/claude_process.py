@@ -3,12 +3,16 @@
 import asyncio
 import json
 import os
+import signal
 from collections.abc import AsyncIterator
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 
 from claude_code_model_bridge.claude_cli import Invocation
+
+GRACE_SECONDS = 5
+"""How long a terminated run has to exit before it is killed outright."""
 
 BILLABLE_CREDENTIALS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
 """Credentials that would move spending from the subscription onto paid API billing."""
@@ -56,19 +60,41 @@ class ClaudeProcess:
                 stderr=asyncio.subprocess.PIPE,
                 env=self._environment,
                 cwd=workspace,
+                start_new_session=True,
             )
-            process.stdin.write(self._conversation(invocation).encode())
-            await process.stdin.drain()
-            process.stdin.close()
-            answered = False
-            async for line in process.stdout:
-                text = line.decode().strip()
-                if text:
-                    answered = True
-                    yield json.loads(text)
-            if await process.wait() != 0 and not answered:
-                stderr = (await process.stderr.read()).decode().strip()
-                raise ClaudeFailed(stderr or f"claude exited with {process.returncode}")
+            try:
+                process.stdin.write(self._conversation(invocation).encode())
+                await process.stdin.drain()
+                process.stdin.close()
+                answered = False
+                async for line in process.stdout:
+                    text = line.decode().strip()
+                    if text:
+                        answered = True
+                        yield json.loads(text)
+                if await process.wait() != 0 and not answered:
+                    stderr = (await process.stderr.read()).decode().strip()
+                    raise ClaudeFailed(
+                        stderr or f"claude exited with {process.returncode}"
+                    )
+            finally:
+                await self._stop(process)
+
+    async def _stop(self, process: asyncio.subprocess.Process) -> None:
+        """Ends the run, so work nobody is waiting for stops costing usage.
+
+        The CLI is started in its own session, so the whole process group
+        goes: killing only the parent would leave its children generating.
+        """
+        if process.returncode is not None:
+            return
+        group = os.getpgid(process.pid)
+        os.killpg(group, signal.SIGTERM)
+        try:
+            await asyncio.wait_for(process.wait(), timeout=GRACE_SECONDS)
+        except TimeoutError:
+            os.killpg(group, signal.SIGKILL)
+            await process.wait()
 
     def _refuse_billable_credentials(self) -> None:
         """Stops before spending anything but the subscription login.
