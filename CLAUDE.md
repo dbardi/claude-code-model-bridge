@@ -1,4 +1,4 @@
-# model-harness
+# claude-code-model-bridge
 
 An adapter that presents the Claude Code CLI to Hermes Agent as an
 OpenAI-compatible model endpoint, running on a Claude subscription rather than
