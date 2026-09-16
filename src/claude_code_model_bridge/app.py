@@ -10,10 +10,12 @@ from starlette.routing import Route
 
 from claude_code_model_bridge.catalog import ModelCatalog, UnknownModel
 from claude_code_model_bridge.claude_cli import ClaudeCli
+from claude_code_model_bridge.request_log import RequestRecord
 from claude_code_model_bridge.translation import (
     build_invocation,
     completion_from_events,
     stream_chunks,
+    usage_from_events,
 )
 
 
@@ -36,7 +38,13 @@ def create_app(
         except UnknownModel:
             return _unknown_model(body["model"])
         invocation = build_invocation(body, resolution)
-        if body.get("stream"):
+        streaming = bool(body.get("stream"))
+        record = RequestRecord(
+            model=body["model"],
+            tools=bool(body.get("tools")),
+            streaming=streaming,
+        )
+        if streaming:
             return StreamingResponse(
                 _server_sent_events(
                     _limited(claude_cli.run(invocation)),
@@ -44,11 +52,15 @@ def create_app(
                     include_usage=bool(
                         (body.get("stream_options") or {}).get("include_usage")
                     ),
+                    record=record,
                 ),
                 media_type="text/event-stream",
             )
         events = [event async for event in _limited(claude_cli.run(invocation))]
-        return JSONResponse(completion_from_events(events, model=body["model"]))
+        completion = completion_from_events(events, model=body["model"])
+        record.note_usage(usage_from_events(events))
+        record.finished()
+        return JSONResponse(completion)
 
     async def _limited(events):
         """Runs one call, waiting its turn if too many are already running."""
@@ -56,10 +68,22 @@ def create_app(
             async for event in events:
                 yield event
 
-    async def _server_sent_events(events, model: str, include_usage: bool):
-        async for chunk in stream_chunks(events, model=model, include_usage=include_usage):
-            yield f"data: {json.dumps(chunk)}\n\n"
-        yield "data: [DONE]\n\n"
+    async def _server_sent_events(events, model: str, include_usage: bool, record):
+        outcome = "success"
+        try:
+            async for chunk in stream_chunks(events, model=model, include_usage=True):
+                usage = chunk.get("usage")
+                if usage:
+                    record.note_usage(usage)
+                    if not include_usage:
+                        continue
+                yield f"data: {json.dumps(chunk)}\n\n"
+            yield "data: [DONE]\n\n"
+        except Exception:
+            outcome = "failed"
+            raise
+        finally:
+            record.finished(outcome)
 
     async def list_models(request: Request) -> JSONResponse:
         return JSONResponse(catalog.listing())

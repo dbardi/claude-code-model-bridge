@@ -184,6 +184,11 @@ def completion_from_events(events: list[dict[str, Any]], model: str) -> dict[str
     }
 
 
+def usage_from_events(events: list[dict[str, Any]]) -> dict[str, Any]:
+    """The token counts one invocation reported, in OpenAI's shape."""
+    return _usage(_result(events))
+
+
 def _result(events: list[dict[str, Any]]) -> dict[str, Any]:
     for event in reversed(events):
         if event.get("type") == "result":
