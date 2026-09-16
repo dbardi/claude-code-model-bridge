@@ -86,3 +86,19 @@ async def test_consecutive_turns_from_one_role_merge(bridge):
     assert [turn.role for turn in turns] == ["user", "assistant", "user"]
     assert "467G free" in turns[2].text
     assert "8G free" in turns[2].text
+
+
+async def test_a_conversation_ending_on_an_assistant_turn_gets_a_closing_user_turn(bridge):
+    client, claude = bridge([result_event("continuing")])
+
+    await client.chat.completions.create(
+        model=MODEL,
+        messages=[
+            {"role": "user", "content": "Start a list."},
+            {"role": "assistant", "content": "1. First item"},
+        ],
+    )
+
+    turns = claude.invocations[0].turns
+    assert turns[-1].role == "user"
+    assert turns[-1].text
