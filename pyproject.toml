@@ -12,6 +12,9 @@ dependencies = [
     "uvicorn==0.53.0",
 ]
 
+[project.scripts]
+claude-code-model-bridge = "claude_code_model_bridge.__main__:main"
+
 [build-system]
 requires = ["uv_build>=0.11.7,<0.12.0"]
 build-backend = "uv_build"

@@ -9,7 +9,12 @@ from pathlib import Path
 import pytest
 
 from claude_code_model_bridge.claude_cli import Invocation, Turn
-from claude_code_model_bridge.claude_process import ApiKeyPresent, ClaudeFailed, ClaudeProcess
+from claude_code_model_bridge.claude_process import (
+    ApiKeyPresent,
+    ClaudeFailed,
+    ClaudeProcess,
+    ClaudeTimedOut,
+)
 
 STUB = """#!/usr/bin/env python3
 import json, os, sys, time
@@ -41,7 +46,14 @@ def claude_stub(tmp_path):
     script.chmod(script.stat().st_mode | stat.S_IEXEC)
     record = tmp_path / "record.json"
 
-    def build(events=(), exit_code=0, environment=None, linger_seconds=0):
+    def build(
+        events=(),
+        exit_code=0,
+        environment=None,
+        linger_seconds=0,
+        total_seconds=900,
+        silence_seconds=300,
+    ):
         env = dict(environment or {})
         env.update(
             {
@@ -52,7 +64,12 @@ def claude_stub(tmp_path):
                 "PATH": os.environ["PATH"],
             }
         )
-        return ClaudeProcess(executable=str(script), environment=env)
+        return ClaudeProcess(
+            executable=str(script),
+            environment=env,
+            total_seconds=total_seconds,
+            silence_seconds=silence_seconds,
+        )
 
     build.record = lambda: json.loads(Path(record).read_text())
     return build
@@ -123,6 +140,29 @@ def _running(pid: int) -> bool:
     except ProcessLookupError:
         return False
     return True
+
+
+async def test_a_run_that_overruns_its_cap_is_stopped(claude_stub):
+    process = claude_stub(
+        events=[{"type": "stream_event"}], linger_seconds=30, total_seconds=0.2
+    )
+
+    with pytest.raises(ClaudeTimedOut):
+        [event async for event in process.run(an_invocation())]
+
+    assert not _running(claude_stub.record()["pid"])
+
+
+async def test_a_run_that_goes_quiet_is_stopped(claude_stub):
+    """A wedged CLI produces nothing at all, and must not hold a slot for hours."""
+    process = claude_stub(
+        events=[{"type": "stream_event"}], linger_seconds=30, silence_seconds=0.2
+    )
+
+    with pytest.raises(ClaudeTimedOut):
+        [event async for event in process.run(an_invocation())]
+
+    assert not _running(claude_stub.record()["pid"])
 
 
 async def test_refuses_to_run_when_an_api_key_could_be_billed(claude_stub):

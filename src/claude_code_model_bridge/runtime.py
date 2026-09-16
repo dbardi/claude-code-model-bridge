@@ -8,6 +8,7 @@ from starlette.applications import Starlette
 
 from claude_code_model_bridge.app import create_app
 from claude_code_model_bridge.catalog import ModelCatalog
+from claude_code_model_bridge.claude_cli import ClaudeCli
 from claude_code_model_bridge.claude_process import ClaudeProcess
 
 DEFAULT_CATALOG = Path(__file__).with_name("models.yaml")
@@ -39,9 +40,12 @@ class Settings:
         )
 
 
-def build_application(settings: Settings) -> Starlette:
-    """Builds the application with the real CLI behind the Claude seam."""
+def build_application(
+    settings: Settings, claude_cli: ClaudeCli | None = None
+) -> Starlette:
+    """Builds the application, running the real CLI unless given another."""
     return create_app(
-        claude_cli=ClaudeProcess(),
+        claude_cli=claude_cli or ClaudeProcess(),
         catalog=ModelCatalog.from_yaml(settings.catalog_path.read_text()),
+        max_concurrent=settings.max_concurrent,
     )

@@ -1,9 +1,13 @@
 """Behavior of the assembled application: the bridge as something you can run."""
 
+import asyncio
+
 import httpx
 from openai import AsyncOpenAI
 
-from claude_code_model_bridge.runtime import Settings, build_application
+from claude_code_model_bridge.catalog import ModelCatalog
+from claude_code_model_bridge.runtime import DEFAULT_CATALOG, Settings, build_application
+from tests.test_concurrency import CountingClaudeCli
 
 BASE_URL = "http://bridge.test/v1"
 
@@ -32,6 +36,28 @@ async def test_serves_the_catalog_named_in_configuration(tmp_path):
     assert [model.id for model in listing.data] == ["configured-model"]
 
 
+async def test_the_configured_concurrency_cap_is_applied(tmp_path):
+    catalog_file = tmp_path / "models.yaml"
+    catalog_file.write_text(CATALOG)
+    claude = CountingClaudeCli()
+
+    app = build_application(
+        Settings(catalog_path=catalog_file, max_concurrent=1), claude_cli=claude
+    )
+
+    client = client_for(app)
+    await asyncio.gather(
+        *(
+            client.chat.completions.create(
+                model="configured-model",
+                messages=[{"role": "user", "content": "Say ok."}],
+            )
+            for _ in range(4)
+        )
+    )
+    assert claude.most_at_once == 1
+
+
 def test_settings_come_from_the_environment():
     settings = Settings.from_environment(
         {
@@ -44,6 +70,22 @@ def test_settings_come_from_the_environment():
     assert str(settings.catalog_path) == "/somewhere/models.yaml"
     assert settings.port == 9000
     assert settings.max_concurrent == 2
+
+
+def test_the_shipped_catalog_is_usable():
+    """Every shipped model must be usable by a caller that checks before starting.
+
+    Some harnesses refuse to run against a model whose advertised window
+    looks too small to work in, so an entry below that floor would make the
+    bridge unusable rather than merely limited.
+    """
+    catalog = ModelCatalog.from_yaml(DEFAULT_CATALOG.read_text())
+
+    models = catalog.listing()["data"]
+    assert models, "the shipped catalog is empty"
+    for model in models:
+        assert model["context_length"] >= 64_000, model["id"]
+        assert catalog.resolve(model["id"]).cli_model
 
 
 def test_settings_have_usable_defaults():
