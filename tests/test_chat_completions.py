@@ -32,3 +32,16 @@ async def test_streams_the_text_in_fragments_as_claude_produces_it(bridge):
     fragments = [chunk.choices[0].delta.content async for chunk in stream]
 
     assert "".join(f for f in fragments if f) == "Hello there, nice to meet you!"
+
+
+async def test_streaming_completion_ends_with_a_finish_reason(bridge):
+    client, _ = bridge([text_delta_event("hi"), result_event("hi")])
+
+    stream = await client.chat.completions.create(
+        model="claude-opus-5",
+        messages=[{"role": "user", "content": "Greet me."}],
+        stream=True,
+    )
+    reasons = [chunk.choices[0].finish_reason async for chunk in stream if chunk.choices]
+
+    assert reasons[-1] == "stop"
