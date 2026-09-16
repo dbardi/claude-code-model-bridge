@@ -1,5 +1,6 @@
 """Behavior of the adapter that actually runs the CLI."""
 
+import asyncio
 import json
 import os
 import stat
@@ -11,7 +12,7 @@ from claude_code_model_bridge.claude_cli import Invocation, Turn
 from claude_code_model_bridge.claude_process import ApiKeyPresent, ClaudeFailed, ClaudeProcess
 
 STUB = """#!/usr/bin/env python3
-import json, os, sys
+import json, os, sys, time
 
 argv = sys.argv[1:]
 prompt = ""
@@ -21,11 +22,13 @@ record = {
     "argv": argv,
     "stdin": sys.stdin.read(),
     "system_prompt": prompt,
+    "pid": os.getpid(),
     "env_had_key": "ANTHROPIC_API_KEY" in os.environ,
 }
 open(os.environ["STUB_RECORD"], "w").write(json.dumps(record))
 for line in json.loads(os.environ.get("STUB_EVENTS", "[]")):
     print(json.dumps(line), flush=True)
+time.sleep(float(os.environ.get("STUB_LINGER", "0")))
 sys.exit(int(os.environ.get("STUB_EXIT", "0")))
 """
 
@@ -38,13 +41,14 @@ def claude_stub(tmp_path):
     script.chmod(script.stat().st_mode | stat.S_IEXEC)
     record = tmp_path / "record.json"
 
-    def build(events=(), exit_code=0, environment=None):
+    def build(events=(), exit_code=0, environment=None, linger_seconds=0):
         env = dict(environment or {})
         env.update(
             {
                 "STUB_RECORD": str(record),
                 "STUB_EVENTS": json.dumps(list(events)),
                 "STUB_EXIT": str(exit_code),
+                "STUB_LINGER": str(linger_seconds),
                 "PATH": os.environ["PATH"],
             }
         )
@@ -95,6 +99,30 @@ async def test_every_call_is_isolated_from_local_configuration(claude_stub):
         assert flag in argv, f"missing isolation flag: {flag or '(empty string)'}"
     assert argv[argv.index("--setting-sources") + 1] == ""
     assert argv[argv.index("--tools") + 1] == ""
+
+
+async def test_abandoning_a_run_stops_the_work(claude_stub):
+    """A caller that walks away must not leave Claude generating."""
+    process = claude_stub(events=[{"type": "stream_event"}], linger_seconds=30)
+
+    generator = process.run(an_invocation())
+    await generator.__anext__()
+    child = claude_stub.record()["pid"]
+    await generator.aclose()
+
+    for _ in range(50):
+        if not _running(child):
+            break
+        await asyncio.sleep(0.05)
+    assert not _running(child)
+
+
+def _running(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
 
 
 async def test_refuses_to_run_when_an_api_key_could_be_billed(claude_stub):
