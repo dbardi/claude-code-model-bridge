@@ -24,6 +24,7 @@ class Invocation:
     model: str
     turns: tuple[Turn, ...]
     output_schema: dict[str, Any] | None = None
+    system_prompt: str = ""
 
 
 class ClaudeCli(Protocol):

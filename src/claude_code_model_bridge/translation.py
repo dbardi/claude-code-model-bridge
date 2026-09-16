@@ -11,14 +11,29 @@ from claude_code_model_bridge.claude_cli import Invocation, Turn
 
 def build_invocation(request: dict[str, Any]) -> Invocation:
     """Turns an OpenAI chat completion request into a single Claude invocation."""
-    turns = tuple(
-        Turn(role=message["role"], text=message["content"])
-        for message in request["messages"]
-    )
+    messages = request["messages"]
     return Invocation(
         model=request["model"],
-        turns=turns,
+        turns=_turns(messages),
         output_schema=_output_schema(request.get("tools") or []),
+        system_prompt=_system_prompt(messages),
+    )
+
+
+def _system_prompt(messages: list[dict[str, Any]]) -> str:
+    """Joins the system messages; the CLI takes one system prompt, not many."""
+    return "\n\n".join(
+        message["content"]
+        for message in messages
+        if message["role"] in ("system", "developer")
+    )
+
+
+def _turns(messages: list[dict[str, Any]]) -> tuple[Turn, ...]:
+    return tuple(
+        Turn(role=message["role"], text=message["content"])
+        for message in messages
+        if message["role"] not in ("system", "developer")
     )
 
 
