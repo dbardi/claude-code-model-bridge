@@ -89,6 +89,22 @@ async def test_an_answer_given_twice_is_said_once():
     assert await streamed_text(client) == ANSWER
 
 
+TWO_STRUCTURED_PASSES = [
+    json_delta_event('{"content": "Morning. Nothing queued.", "tool_calls": []}'),
+    ENFORCE_EVENT,
+    json_delta_event('{"content": "Here is the project list you asked for."'),
+    json_delta_event(', "tool_calls": []}'),
+    structured_result_event("Here is the project list you asked for.", []),
+]
+
+
+async def test_the_last_answer_wins_when_the_cli_answers_twice():
+    """The CLI can produce several structured answers; only the last is the reply."""
+    client = bridge_for(TWO_STRUCTURED_PASSES)
+
+    assert await streamed_text(client) == "Here is the project list you asked for."
+
+
 async def test_an_answer_the_model_never_restated_is_still_said():
     """The second pass may carry nothing; the reply must not vanish with it."""
     client = bridge_for(
