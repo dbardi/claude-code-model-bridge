@@ -33,3 +33,15 @@ def result_event(text: str) -> dict[str, Any]:
             "output_tokens": 3,
         },
     }
+
+
+def text_delta_event(text: str) -> dict[str, Any]:
+    """A streamed fragment of assistant text."""
+    return {
+        "type": "stream_event",
+        "event": {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "text_delta", "text": text},
+        },
+    }
