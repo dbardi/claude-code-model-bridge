@@ -23,13 +23,7 @@ from claude_code_model_bridge.translation import (
 def create_app(
     claude_cli: ClaudeCli, catalog: ModelCatalog, max_concurrent: int = 4
 ) -> Starlette:
-    """Builds the application, taking the Claude seam as a dependency.
-
-    `max_concurrent` caps how many calls run at once. Callers make requests
-    of their own accord (summaries, titles, retries), and each one costs
-    from the same usage window, so the bridge holds the rest waiting rather
-    than starting everything at once.
-    """
+    """Builds the application. `max_concurrent` caps simultaneous calls."""
     running = asyncio.Semaphore(max_concurrent)
 
     async def create_chat_completion(request: Request) -> JSONResponse:
@@ -61,6 +55,7 @@ def create_app(
                     include_usage=bool(
                         (body.get("stream_options") or {}).get("include_usage")
                     ),
+                    schema_mode=invocation.output_schema is not None,
                     record=record,
                 ),
                 media_type="text/event-stream",
@@ -78,13 +73,7 @@ def create_app(
         return JSONResponse(completion)
 
     async def _until_output(events) -> list:
-        """Reads ahead until the answer starts, so failures still have a status.
-
-        Once a stream has begun there is no status left to send: the headers
-        are gone. A failed run produces no output at all, so reading up to
-        the first content event costs nothing and keeps the failure
-        reportable.
-        """
+        """Reads ahead to the first content event, while a status can still be sent."""
         opening = []
         async for event in events:
             opening.append(event)
@@ -107,10 +96,14 @@ def create_app(
             async for event in events:
                 yield event
 
-    async def _server_sent_events(events, model: str, include_usage: bool, record):
+    async def _server_sent_events(
+        events, model: str, include_usage: bool, schema_mode: bool, record
+    ):
         outcome = "success"
         try:
-            async for chunk in stream_chunks(events, model=model, include_usage=True):
+            async for chunk in stream_chunks(
+                events, model=model, include_usage=True, schema_mode=schema_mode
+            ):
                 usage = chunk.get("usage")
                 if usage:
                     record.note_usage(usage)

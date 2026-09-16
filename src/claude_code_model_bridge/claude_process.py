@@ -91,12 +91,7 @@ class ClaudeProcess:
                 await self._stop(process)
 
     async def _lines(self, process: asyncio.subprocess.Process) -> AsyncIterator[bytes]:
-        """Reads the CLI's output, giving up if it overruns or goes quiet.
-
-        Two separate failures need catching: a run that keeps working past
-        any useful deadline, and one that wedges and produces nothing at
-        all. Either would otherwise hold its slot indefinitely.
-        """
+        """Reads the CLI's output, giving up if it overruns or goes quiet."""
         deadline = asyncio.get_running_loop().time() + self._total_seconds
         while True:
             remaining = deadline - asyncio.get_running_loop().time()
@@ -115,11 +110,7 @@ class ClaudeProcess:
             yield line
 
     async def _stop(self, process: asyncio.subprocess.Process) -> None:
-        """Ends the run, so work nobody is waiting for stops costing usage.
-
-        The CLI is started in its own session, so the whole process group
-        goes: killing only the parent would leave its children generating.
-        """
+        """Ends the run, terminating the whole process group."""
         if process.returncode is not None:
             return
         group = os.getpgid(process.pid)
@@ -131,11 +122,7 @@ class ClaudeProcess:
             await process.wait()
 
     def _refuse_billable_credentials(self) -> None:
-        """Stops before spending anything but the subscription login.
-
-        A key in the environment would let the CLI bill paid API usage
-        instead, which is the one outcome this bridge exists to avoid.
-        """
+        """Refuses to run when the environment offers a billable credential."""
         offered = [name for name in BILLABLE_CREDENTIALS if self._environment.get(name)]
         if offered:
             raise ApiKeyPresent(
@@ -144,13 +131,7 @@ class ClaudeProcess:
             )
 
     def _arguments(self, invocation: Invocation, prompt_file: Path) -> list[str]:
-        """Builds the command line, isolated from local configuration.
-
-        The isolation flags are load-bearing rather than tidiness: without
-        them every call also loads the machine's connectors, hooks and plugin
-        context, which on a subscription is spent from the usage window. See
-        docs/adr/0005.
-        """
+        """Builds the command line, isolated from local configuration (docs/adr/0005)."""
         arguments = [
             "--print",
             "--setting-sources",

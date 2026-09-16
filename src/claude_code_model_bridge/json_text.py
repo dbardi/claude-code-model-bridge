@@ -6,11 +6,8 @@ import json
 class StringFieldReader:
     """Yields a JSON string field's characters as the surrounding JSON arrives.
 
-    Claude streams schema-validated answers as fragments of one JSON object,
-    so the prose a caller should see live is buried inside unfinished JSON.
-    This reads that one field and emits only characters that are complete:
-    a fragment ending mid-escape (`\\u00e9` split across two deltas) waits
-    until the escape resolves rather than emitting a broken character.
+    Emits only complete characters: a fragment ending mid-escape waits for
+    the rest of the escape.
     """
 
     def __init__(self, field: str) -> None:

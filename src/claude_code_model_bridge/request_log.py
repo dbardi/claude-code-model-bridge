@@ -9,12 +9,9 @@ logger = logging.getLogger("claude_code_model_bridge")
 
 
 class RequestRecord:
-    """Collects one request's facts, and writes them when it ends.
+    """Collects one request's facts and writes them when it ends.
 
-    Conversations pass through this bridge, so prompts and answers are
-    never recorded. What is recorded is what someone operating the bridge
-    needs: which model ran, how long it took, what it spent, and how it
-    ended.
+    Records model, duration, tokens and outcome. Never prompts or answers.
     """
 
     def __init__(self, model: str, tools: bool, streaming: bool) -> None:

@@ -11,7 +11,7 @@ from claude_code_model_bridge.claude_cli import Invocation, Turn
 from claude_code_model_bridge.json_text import StringFieldReader
 
 CONTINUE = "Continue."
-"""Closes a conversation that ends on an assistant turn, which Claude cannot answer."""
+"""Closing turn for a conversation that ends on an assistant message."""
 
 
 def build_invocation(request: dict[str, Any], resolution: Resolution) -> Invocation:
@@ -36,11 +36,10 @@ def _system_prompt(messages: list[dict[str, Any]]) -> str:
 
 
 def _turns(messages: list[dict[str, Any]]) -> tuple[Turn, ...]:
-    """Renders the conversation, tool history included, as plain turns.
+    """Renders the conversation as plain turns.
 
-    Tool calls and their results are written as labeled text rather than
-    native tool-use blocks: see docs/adr/0003. Tool results are attributed
-    to the user, the only role the CLI accepts them under.
+    Tool calls and results become labeled text (docs/adr/0003), attributed
+    to the user.
     """
     tool_names = _tool_names(messages)
     turns: list[Turn] = []
@@ -65,11 +64,7 @@ def _turns(messages: list[dict[str, Any]]) -> tuple[Turn, ...]:
 
 
 def _append(turns: list[Turn], turn: Turn) -> None:
-    """Adds a turn, merging it into the previous one when the role repeats.
-
-    The CLI expects roles to alternate, and tool results arrive as their own
-    messages that would otherwise stack up as consecutive user turns.
-    """
+    """Adds a turn, merging it into the previous one when the role repeats."""
     if turns and turns[-1].role == turn.role:
         turns[-1] = Turn(role=turn.role, text=f"{turns[-1].text}\n\n{turn.text}")
         return
@@ -77,7 +72,7 @@ def _append(turns: list[Turn], turn: Turn) -> None:
 
 
 def _tool_names(messages: list[dict[str, Any]]) -> dict[str, str]:
-    """Maps a tool call id to its name, so a result can name the tool it came from."""
+    """Maps each tool call id to its tool name."""
     return {
         call["id"]: call["function"]["name"]
         for message in messages
@@ -86,11 +81,7 @@ def _tool_names(messages: list[dict[str, Any]]) -> dict[str, str]:
 
 
 def _images(content: Any) -> tuple[tuple[str, str], ...]:
-    """Pulls inline image data out of a multi-part message.
-
-    Only `data:` URLs are carried: fetching a remote image would mean the
-    bridge making network requests of its own, which it never does.
-    """
+    """Pulls inline image data out of a multi-part message. `data:` URLs only."""
     if not isinstance(content, list):
         return ()
     images = []
@@ -134,11 +125,7 @@ def _tool_result_text(message: dict[str, Any], tool_names: dict[str, str]) -> st
 
 
 def _output_schema(tools: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """Constrains the answer to prose plus calls to the declared tools.
-
-    The name enum is what makes an undeclared tool name impossible rather
-    than merely discouraged.
-    """
+    """Constrains the answer to prose plus calls to the declared tools."""
     if not tools:
         return None
     names = [tool["function"]["name"] for tool in tools]
@@ -197,7 +184,7 @@ def _result(events: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _answer(result: dict[str, Any]) -> str:
-    """The assistant's prose, preferring the schema-validated copy when present."""
+    """The assistant's prose, from the structured output when present."""
     structured = result.get("structured_output")
     if isinstance(structured, dict):
         return structured.get("content", "")
@@ -223,9 +210,16 @@ def _tool_calls(result: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 async def stream_chunks(
-    events: AsyncIterator[dict[str, Any]], model: str, include_usage: bool = False
+    events: AsyncIterator[dict[str, Any]],
+    model: str,
+    include_usage: bool = False,
+    schema_mode: bool = False,
 ) -> AsyncIterator[dict[str, Any]]:
-    """Emits an OpenAI chunk for each fragment of text Claude produces."""
+    """Emits an OpenAI chunk per fragment of text.
+
+    Under a schema the CLI answers twice, as plain text then as structured
+    output; only the structured answer is forwarded.
+    """
     completion_id = f"chatcmpl-{uuid.uuid4().hex}"
     created = int(time.time())
     def chunk(delta: dict[str, Any], finish_reason: str | None) -> dict[str, Any]:
@@ -241,14 +235,23 @@ async def stream_chunks(
 
     usage = None
     tool_calls: list[dict[str, Any]] = []
+    answer = ""
+    said_anything = False
     prose = StringFieldReader("content")
     async for event in events:
-        text = _text_fragment(event) or prose.feed(_json_fragment(event))
+        if schema_mode:
+            text = prose.feed(_json_fragment(event))
+        else:
+            text = _text_fragment(event)
         if text:
+            said_anything = True
             yield chunk({"content": text}, None)
         if event.get("type") == "result":
             usage = _usage(event)
             tool_calls = _tool_calls(event)
+            answer = _answer(event)
+    if not said_anything and answer:
+        yield chunk({"content": answer}, None)
     for index, call in enumerate(tool_calls):
         yield chunk({"tool_calls": [{"index": index, **call}]}, None)
     yield chunk({}, "tool_calls" if tool_calls else "stop")
