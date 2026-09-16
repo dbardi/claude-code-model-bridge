@@ -53,6 +53,7 @@ def claude_stub(tmp_path):
         linger_seconds=0,
         total_seconds=900,
         silence_seconds=300,
+        plugin_dir=None,
     ):
         env = dict(environment or {})
         env.update(
@@ -69,6 +70,7 @@ def claude_stub(tmp_path):
             environment=env,
             total_seconds=total_seconds,
             silence_seconds=silence_seconds,
+            plugin_dir=plugin_dir,
         )
 
     build.record = lambda: json.loads(Path(record).read_text())
@@ -140,6 +142,42 @@ def _running(pid: int) -> bool:
     except ProcessLookupError:
         return False
     return True
+
+
+async def test_no_plugins_are_loaded_by_default(claude_stub):
+    process = claude_stub()
+
+    [event async for event in process.run(an_invocation())]
+
+    assert "--plugin-dir" not in claude_stub.record()["argv"]
+
+
+async def test_a_configured_plugin_directory_is_loaded(claude_stub, tmp_path):
+    skills = tmp_path / "skills"
+    skills.mkdir()
+    process = claude_stub(plugin_dir=skills)
+
+    [event async for event in process.run(an_invocation())]
+
+    argv = claude_stub.record()["argv"]
+    assert argv[argv.index("--plugin-dir") + 1] == str(skills)
+
+
+async def test_skills_can_be_chosen_only_where_plugins_are_loaded(claude_stub, tmp_path):
+    """Choosing a skill needs the Skill tool, which loads text and runs nothing."""
+    skills = tmp_path / "skills"
+    skills.mkdir()
+
+    process = claude_stub(plugin_dir=skills)
+    [event async for event in process.run(an_invocation())]
+    with_plugins = claude_stub.record()["argv"]
+
+    process = claude_stub()
+    [event async for event in process.run(an_invocation())]
+    without_plugins = claude_stub.record()["argv"]
+
+    assert with_plugins[with_plugins.index("--tools") + 1] == "Skill"
+    assert without_plugins[without_plugins.index("--tools") + 1] == ""
 
 
 async def test_a_run_that_overruns_its_cap_is_stopped(claude_stub):
