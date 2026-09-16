@@ -6,6 +6,7 @@ import uuid
 from collections.abc import AsyncIterator
 from typing import Any
 
+from claude_code_model_bridge.catalog import Resolution
 from claude_code_model_bridge.claude_cli import Invocation, Turn
 from claude_code_model_bridge.json_text import StringFieldReader
 
@@ -13,14 +14,15 @@ CONTINUE = "Continue."
 """Closes a conversation that ends on an assistant turn, which Claude cannot answer."""
 
 
-def build_invocation(request: dict[str, Any]) -> Invocation:
+def build_invocation(request: dict[str, Any], resolution: Resolution) -> Invocation:
     """Turns an OpenAI chat completion request into a single Claude invocation."""
     messages = request["messages"]
     return Invocation(
-        model=request["model"],
+        model=resolution.cli_model,
         turns=_turns(messages),
         output_schema=_output_schema(request.get("tools") or []),
         system_prompt=_system_prompt(messages),
+        effort=resolution.effort or request.get("reasoning_effort"),
     )
 
 

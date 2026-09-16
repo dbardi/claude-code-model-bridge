@@ -7,7 +7,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, StreamingResponse
 from starlette.routing import Route
 
-from claude_code_model_bridge.catalog import ModelCatalog
+from claude_code_model_bridge.catalog import ModelCatalog, UnknownModel
 from claude_code_model_bridge.claude_cli import ClaudeCli
 from claude_code_model_bridge.translation import (
     build_invocation,
@@ -21,7 +21,11 @@ def create_app(claude_cli: ClaudeCli, catalog: ModelCatalog) -> Starlette:
 
     async def create_chat_completion(request: Request) -> JSONResponse:
         body = await request.json()
-        invocation = build_invocation(body)
+        try:
+            resolution = catalog.resolve(body["model"])
+        except UnknownModel:
+            return _unknown_model(body["model"])
+        invocation = build_invocation(body, resolution)
         if body.get("stream"):
             return StreamingResponse(
                 _server_sent_events(
@@ -43,6 +47,20 @@ def create_app(claude_cli: ClaudeCli, catalog: ModelCatalog) -> Starlette:
 
     async def list_models(request: Request) -> JSONResponse:
         return JSONResponse(catalog.listing())
+
+    def _unknown_model(model: str) -> JSONResponse:
+        """Reports an unusable model id the way callers expect to read it."""
+        return JSONResponse(
+            {
+                "error": {
+                    "message": f"The model `{model}` does not exist.",
+                    "type": "invalid_request_error",
+                    "param": "model",
+                    "code": "model_not_found",
+                }
+            },
+            status_code=404,
+        )
 
     return Starlette(
         routes=[

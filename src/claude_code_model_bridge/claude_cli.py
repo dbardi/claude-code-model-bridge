@@ -30,6 +30,7 @@ class Invocation:
     turns: tuple[Turn, ...]
     output_schema: dict[str, Any] | None = None
     system_prompt: str = ""
+    effort: str | None = None
 
 
 class ClaudeCli(Protocol):
