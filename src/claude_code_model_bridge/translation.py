@@ -1,4 +1,4 @@
-"""Translates between the OpenAI protocol Hermes speaks and the CLI's events."""
+"""Translates between the OpenAI protocol and the Claude CLI's events."""
 
 import time
 import uuid

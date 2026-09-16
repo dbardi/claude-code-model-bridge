@@ -1,4 +1,4 @@
-"""Behavior at the HTTP seam: what Hermes sees when it asks for a completion."""
+"""Behavior at the HTTP seam: what a client sees when it asks for a completion."""
 
 from tests.cli_events import assistant_text_event, result_event, text_delta_event
 

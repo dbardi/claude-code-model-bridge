@@ -1,7 +1,7 @@
 [project]
 name = "claude-code-model-bridge"
 version = "0.1.0"
-description = "Presents the Claude Code CLI to Hermes Agent as an OpenAI-compatible model endpoint"
+description = "Presents the Claude Code CLI as an OpenAI-compatible model endpoint"
 authors = [
     { name = "Daniel Bardi", email = "dbardi@gmail.com" }
 ]

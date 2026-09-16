@@ -1,4 +1,4 @@
-"""The HTTP seam: the OpenAI-compatible surface Hermes talks to."""
+"""The HTTP seam: the OpenAI-compatible surface clients talk to."""
 
 import json
 

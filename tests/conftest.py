@@ -1,4 +1,4 @@
-"""Test fixtures for driving the bridge the way Hermes drives it."""
+"""Test fixtures for driving the bridge through a real OpenAI client."""
 
 from collections.abc import AsyncIterator, Iterable
 from typing import Any
