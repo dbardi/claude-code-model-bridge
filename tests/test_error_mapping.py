@@ -4,7 +4,13 @@ import time
 
 import httpx
 import pytest
-from openai import APIStatusError, AsyncOpenAI, AuthenticationError, RateLimitError
+from openai import (
+    APIStatusError,
+    AsyncOpenAI,
+    AuthenticationError,
+    NotFoundError,
+    RateLimitError,
+)
 
 from claude_code_model_bridge.app import create_app
 from claude_code_model_bridge.catalog import ModelCatalog
@@ -33,9 +39,13 @@ def bridge_for(events) -> AsyncOpenAI:
     )
 
 
-def failed_result(text: str) -> dict:
-    """The CLI's terminating event when the run did not produce an answer."""
-    return {
+def failed_result(text: str, api_error_status: int | None = None) -> dict:
+    """The CLI's terminating event when the run did not produce an answer.
+
+    `subtype` reads "success" even on a rejected model, so only `is_error`
+    and `api_error_status` say anything reliable about what went wrong.
+    """
+    event = {
         "type": "result",
         "subtype": "error_during_execution",
         "is_error": True,
@@ -43,6 +53,38 @@ def failed_result(text: str) -> dict:
         "stop_reason": "stop_sequence",
         "usage": {"input_tokens": 0, "output_tokens": 0},
     }
+    if api_error_status is not None:
+        event["api_error_status"] = api_error_status
+        event["subtype"] = "success"
+        event["terminal_reason"] = "api_error"
+    return event
+
+
+async def test_a_model_the_cli_rejects_is_not_worth_retrying():
+    """A caller must not retry a model id that can never work."""
+    client = bridge_for(
+        [
+            failed_result(
+                "There's an issue with the selected model (claude-does-not-exist-9).",
+                api_error_status=404,
+            )
+        ]
+    )
+
+    with pytest.raises(NotFoundError) as failure:
+        await say_ok(client)
+
+    assert failure.value.response.json()["error"]["code"] == "model_not_found"
+
+
+async def test_a_failure_the_cli_cannot_explain_still_classifies():
+    """Without a reported status, the message is all there is to go on."""
+    client = bridge_for([failed_result("something went wrong inside")])
+
+    with pytest.raises(APIStatusError) as failure:
+        await say_ok(client)
+
+    assert failure.value.status_code == 502
 
 
 async def test_an_answer_without_structured_output_is_still_an_answer():
