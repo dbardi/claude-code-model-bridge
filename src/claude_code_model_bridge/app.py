@@ -1,5 +1,6 @@
 """The HTTP seam: the OpenAI-compatible surface clients talk to."""
 
+import asyncio
 import json
 
 from starlette.applications import Starlette
@@ -16,8 +17,17 @@ from claude_code_model_bridge.translation import (
 )
 
 
-def create_app(claude_cli: ClaudeCli, catalog: ModelCatalog) -> Starlette:
-    """Builds the application, taking the Claude seam as a dependency."""
+def create_app(
+    claude_cli: ClaudeCli, catalog: ModelCatalog, max_concurrent: int = 4
+) -> Starlette:
+    """Builds the application, taking the Claude seam as a dependency.
+
+    `max_concurrent` caps how many calls run at once. Callers make requests
+    of their own accord (summaries, titles, retries), and each one costs
+    from the same usage window, so the bridge holds the rest waiting rather
+    than starting everything at once.
+    """
+    running = asyncio.Semaphore(max_concurrent)
 
     async def create_chat_completion(request: Request) -> JSONResponse:
         body = await request.json()
@@ -29,7 +39,7 @@ def create_app(claude_cli: ClaudeCli, catalog: ModelCatalog) -> Starlette:
         if body.get("stream"):
             return StreamingResponse(
                 _server_sent_events(
-                    claude_cli.run(invocation),
+                    _limited(claude_cli.run(invocation)),
                     model=body["model"],
                     include_usage=bool(
                         (body.get("stream_options") or {}).get("include_usage")
@@ -37,8 +47,14 @@ def create_app(claude_cli: ClaudeCli, catalog: ModelCatalog) -> Starlette:
                 ),
                 media_type="text/event-stream",
             )
-        events = [event async for event in claude_cli.run(invocation)]
+        events = [event async for event in _limited(claude_cli.run(invocation))]
         return JSONResponse(completion_from_events(events, model=body["model"]))
+
+    async def _limited(events):
+        """Runs one call, waiting its turn if too many are already running."""
+        async with running:
+            async for event in events:
+                yield event
 
     async def _server_sent_events(events, model: str, include_usage: bool):
         async for chunk in stream_chunks(events, model=model, include_usage=include_usage):
