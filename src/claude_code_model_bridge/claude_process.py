@@ -34,12 +34,22 @@ class ClaudeFailed(Exception):
     """Raised when the CLI exits without producing an answer."""
 
 
+class ClaudeTimedOut(ClaudeFailed):
+    """Raised when a run outlives its limits and is stopped."""
+
+
 class ClaudeProcess:
     """Answers an invocation by running the CLI once."""
 
     def __init__(
-        self, executable: str = "claude", environment: dict[str, str] | None = None
+        self,
+        executable: str = "claude",
+        environment: dict[str, str] | None = None,
+        total_seconds: float = 900,
+        silence_seconds: float = 300,
     ) -> None:
+        self._total_seconds = total_seconds
+        self._silence_seconds = silence_seconds
         self._executable = executable
         source = dict(environment) if environment is not None else dict(os.environ)
         self._environment = {
@@ -67,7 +77,7 @@ class ClaudeProcess:
                 await process.stdin.drain()
                 process.stdin.close()
                 answered = False
-                async for line in process.stdout:
+                async for line in self._lines(process):
                     text = line.decode().strip()
                     if text:
                         answered = True
@@ -79,6 +89,30 @@ class ClaudeProcess:
                     )
             finally:
                 await self._stop(process)
+
+    async def _lines(self, process: asyncio.subprocess.Process) -> AsyncIterator[bytes]:
+        """Reads the CLI's output, giving up if it overruns or goes quiet.
+
+        Two separate failures need catching: a run that keeps working past
+        any useful deadline, and one that wedges and produces nothing at
+        all. Either would otherwise hold its slot indefinitely.
+        """
+        deadline = asyncio.get_running_loop().time() + self._total_seconds
+        while True:
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                raise ClaudeTimedOut(f"claude ran longer than {self._total_seconds}s")
+            try:
+                line = await asyncio.wait_for(
+                    process.stdout.readline(), timeout=min(remaining, self._silence_seconds)
+                )
+            except TimeoutError:
+                raise ClaudeTimedOut(
+                    f"claude produced nothing for {self._silence_seconds}s"
+                ) from None
+            if not line:
+                return
+            yield line
 
     async def _stop(self, process: asyncio.subprocess.Process) -> None:
         """Ends the run, so work nobody is waiting for stops costing usage.
