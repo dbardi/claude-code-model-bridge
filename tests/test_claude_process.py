@@ -55,6 +55,16 @@ def an_invocation(**overrides) -> Invocation:
     return Invocation(**{**defaults, **overrides})
 
 
+ISOLATION_FLAGS = [
+    "--setting-sources",
+    "",
+    "--strict-mcp-config",
+    "--tools",
+    "",
+    "--no-session-persistence",
+]
+
+
 async def test_yields_the_events_the_cli_prints(claude_stub):
     printed = [
         {"type": "stream_event", "event": {"type": "message_start"}},
@@ -65,3 +75,38 @@ async def test_yields_the_events_the_cli_prints(claude_stub):
     events = [event async for event in process.run(an_invocation())]
 
     assert events == printed
+
+
+async def test_every_call_is_isolated_from_local_configuration(claude_stub):
+    process = claude_stub()
+
+    [event async for event in process.run(an_invocation())]
+
+    argv = claude_stub.record()["argv"]
+    for index, flag in enumerate(ISOLATION_FLAGS):
+        assert flag in argv, f"missing isolation flag: {flag or '(empty string)'}"
+    assert argv[argv.index("--setting-sources") + 1] == ""
+    assert argv[argv.index("--tools") + 1] == ""
+
+
+async def test_the_conversation_reaches_the_cli_as_stream_json(claude_stub):
+    process = claude_stub()
+    invocation = an_invocation(
+        turns=(
+            Turn(role="user", text="How much disk is free?"),
+            Turn(role="assistant", text="Checking."),
+            Turn(role="user", text="[tool_result id=call_1 name=terminal]\n467G"),
+        )
+    )
+
+    [event async for event in process.run(invocation)]
+
+    written = claude_stub.record()["stdin"].strip().splitlines()
+    messages = [json.loads(line) for line in written]
+    assert [message["message"]["role"] for message in messages] == [
+        "user",
+        "assistant",
+        "user",
+    ]
+    assert messages[0]["message"]["content"][0]["text"] == "How much disk is free?"
+    assert "--input-format" in claude_stub.record()["argv"]
