@@ -28,6 +28,8 @@ class ClaudeProcess:
             stderr=asyncio.subprocess.PIPE,
             env=self._environment,
         )
+        process.stdin.write(self._conversation(invocation).encode())
+        await process.stdin.drain()
         process.stdin.close()
         async for line in process.stdout:
             text = line.decode().strip()
@@ -36,4 +38,54 @@ class ClaudeProcess:
         await process.wait()
 
     def _arguments(self, invocation: Invocation) -> list[str]:
-        return ["--model", invocation.model]
+        """Builds the command line, isolated from local configuration.
+
+        The isolation flags are load-bearing rather than tidiness: without
+        them every call also loads the machine's connectors, hooks and plugin
+        context, which on a subscription is spent from the usage window. See
+        docs/adr/0005.
+        """
+        return [
+            "--print",
+            "--setting-sources",
+            "",
+            "--strict-mcp-config",
+            "--tools",
+            "",
+            "--no-session-persistence",
+            "--input-format",
+            "stream-json",
+            "--output-format",
+            "stream-json",
+            "--verbose",
+            "--include-partial-messages",
+            "--model",
+            invocation.model,
+        ]
+
+    def _conversation(self, invocation: Invocation) -> str:
+        """Renders the turns as the stream-json input the CLI reads from stdin."""
+        return "".join(
+            json.dumps(
+                {
+                    "type": turn.role,
+                    "message": {
+                        "role": turn.role,
+                        "content": self._content(turn),
+                    },
+                }
+            )
+            + "\n"
+            for turn in invocation.turns
+        )
+
+    def _content(self, turn) -> list[dict[str, Any]]:
+        blocks: list[dict[str, Any]] = [
+            {
+                "type": "image",
+                "source": {"type": "base64", "media_type": media_type, "data": data},
+            }
+            for media_type, data in turn.images
+        ]
+        blocks.append({"type": "text", "text": turn.text})
+        return blocks
