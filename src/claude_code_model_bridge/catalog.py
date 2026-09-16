@@ -81,10 +81,14 @@ class ModelCatalog:
 def _listed(entry: ModelEntry) -> dict[str, Any]:
     """One model as a listing entry.
 
-    Context window and vision support are each spelled several ways, since
-    clients read different fields for them.
+    Each ability is spelled several ways, since clients read different
+    fields. An ability the CLI cannot offer says `false`, because an absent
+    field reads as unknown.
     """
     modalities = ["text", "image"] if entry.supports_vision else ["text"]
+    capabilities = ["tools", "streaming"]
+    if entry.supports_vision:
+        capabilities.append("vision")
     return {
         "id": entry.id,
         "object": "model",
@@ -94,6 +98,13 @@ def _listed(entry: ModelEntry) -> dict[str, Any]:
         "context_window": entry.context_length,
         "max_input_tokens": entry.context_length,
         "supports_vision": entry.supports_vision,
-        "capabilities": ["vision"] if entry.supports_vision else [],
+        "supports_function_calling": True,
+        "supports_streaming": True,
+        "supports_temperature": False,
+        "supports_max_tokens": False,
+        "supports_response_format": False,
+        "supports_prompt_caching": False,
+        "capabilities": capabilities,
+        "effort_levels": list(EFFORTS),
         "architecture": {"input_modalities": modalities, "output_modalities": ["text"]},
     }
