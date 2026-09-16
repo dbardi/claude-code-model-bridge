@@ -46,9 +46,17 @@ def create_app(
             streaming=streaming,
         )
         if streaming:
+            events = _limited(claude_cli.run(invocation))
+            try:
+                opening = await _until_output(events)
+            except Exception as error:
+                return _reported(failure_from(error), record)
+            failure = failure_in(opening)
+            if failure is not None:
+                return _reported(failure, record)
             return StreamingResponse(
                 _server_sent_events(
-                    _limited(claude_cli.run(invocation)),
+                    _replayed(opening, events),
                     model=body["model"],
                     include_usage=bool(
                         (body.get("stream_options") or {}).get("include_usage")
@@ -68,6 +76,30 @@ def create_app(
         completion = completion_from_events(events, model=body["model"])
         record.finished()
         return JSONResponse(completion)
+
+    async def _until_output(events) -> list:
+        """Reads ahead until the answer starts, so failures still have a status.
+
+        Once a stream has begun there is no status left to send: the headers
+        are gone. A failed run produces no output at all, so reading up to
+        the first content event costs nothing and keeps the failure
+        reportable.
+        """
+        opening = []
+        async for event in events:
+            opening.append(event)
+            if event.get("type") in ("stream_event", "assistant"):
+                break
+            if event.get("type") == "result":
+                break
+        return opening
+
+    async def _replayed(opening: list, rest):
+        """Re-emits what was read ahead, then continues with the live run."""
+        for event in opening:
+            yield event
+        async for event in rest:
+            yield event
 
     async def _limited(events):
         """Runs one call, waiting its turn if too many are already running."""
