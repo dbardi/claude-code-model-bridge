@@ -206,6 +206,26 @@ Models are data, not code. Edit `models.yaml` (or point
 `CLAUDE_BRIDGE_CATALOG` at your own) to add an entry, rename one, or declare a
 different alias, then restart.
 
+## Request fields
+
+The bridge reads `model`, `messages`, `tools`, `tool_choice`, `stream`,
+`stream_options` and `reasoning_effort`.
+
+The CLI exposes no control for sampling, output length, or response formats,
+so these have no effect: `temperature`, `top_p`, `top_k`, `max_tokens`,
+`max_completion_tokens`, `seed`, `stop`, `n`, `logprobs`, `top_logprobs`,
+`presence_penalty`, `frequency_penalty`, `logit_bias`, `response_format`.
+
+Sending them is not an error, and they are not dropped quietly. A response
+that ignored something names it:
+
+```json
+"ignored_parameters": ["temperature", "max_tokens"]
+```
+
+The same names appear on that request's log line. Clients ignore unknown
+response fields, so this cannot break a caller.
+
 ## Failures
 
 Each failure arrives as the status that produces the right reaction, with an

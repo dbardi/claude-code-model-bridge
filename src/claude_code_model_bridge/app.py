@@ -12,6 +12,7 @@ from claude_code_model_bridge.catalog import ModelCatalog, UnknownModel
 from claude_code_model_bridge.claude_cli import ClaudeCli
 from claude_code_model_bridge.failures import failure_from, failure_in
 from claude_code_model_bridge.request_log import RequestRecord
+from claude_code_model_bridge.unsupported import ignored_in
 from claude_code_model_bridge.translation import (
     UndeclaredTool,
     build_invocation,
@@ -41,10 +42,12 @@ def create_app(
                 param="tool_choice",
             )
         streaming = bool(body.get("stream"))
+        ignored = ignored_in(body)
         record = RequestRecord(
             model=body["model"],
             tools=bool(body.get("tools")),
             streaming=streaming,
+            ignored=ignored,
         )
         if streaming:
             events = _limited(claude_cli.run(invocation))
@@ -63,6 +66,7 @@ def create_app(
                         (body.get("stream_options") or {}).get("include_usage")
                     ),
                     schema_mode=invocation.output_schema is not None,
+                    ignored=ignored,
                     record=record,
                 ),
                 media_type="text/event-stream",
@@ -76,6 +80,8 @@ def create_app(
         if failure is not None:
             return _reported(failure, record)
         completion = completion_from_events(events, model=body["model"])
+        if ignored:
+            completion["ignored_parameters"] = ignored
         record.finished()
         return JSONResponse(completion)
 
@@ -104,13 +110,15 @@ def create_app(
                 yield event
 
     async def _server_sent_events(
-        events, model: str, include_usage: bool, schema_mode: bool, record
+        events, model: str, include_usage: bool, schema_mode: bool, ignored, record
     ):
         outcome = "success"
         try:
             async for chunk in stream_chunks(
                 events, model=model, include_usage=True, schema_mode=schema_mode
             ):
+                if ignored:
+                    chunk["ignored_parameters"] = ignored
                 usage = chunk.get("usage")
                 if usage:
                     record.note_usage(usage)
