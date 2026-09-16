@@ -163,6 +163,27 @@ async def test_a_configured_plugin_directory_is_loaded(claude_stub, tmp_path):
     assert argv[argv.index("--plugin-dir") + 1] == str(skills)
 
 
+async def test_loaded_skills_outrank_skill_text_from_the_caller(claude_stub, tmp_path):
+    """A caller may pass its own skill text; the loaded skill wins."""
+    skills = tmp_path / "skills"
+    skills.mkdir()
+    process = claude_stub(plugin_dir=skills)
+
+    [event async for event in process.run(an_invocation(system_prompt="Be terse."))]
+
+    prompt = claude_stub.record()["system_prompt"]
+    assert prompt.startswith("Be terse.")
+    assert "Skill tool take precedence" in prompt
+
+
+async def test_nothing_is_added_to_the_prompt_without_plugins(claude_stub):
+    process = claude_stub()
+
+    [event async for event in process.run(an_invocation(system_prompt="Be terse."))]
+
+    assert claude_stub.record()["system_prompt"] == "Be terse."
+
+
 async def test_skills_can_be_chosen_only_where_plugins_are_loaded(claude_stub, tmp_path):
     """Choosing a skill needs the Skill tool, which loads text and runs nothing."""
     skills = tmp_path / "skills"
