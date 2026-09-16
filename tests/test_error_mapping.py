@@ -85,6 +85,35 @@ async def test_an_allowed_usage_window_is_not_a_rate_limit():
     assert completion.choices[0].message.content == "ok"
 
 
+async def stream_ok(client):
+    stream = await client.chat.completions.create(
+        model=MODEL,
+        messages=[{"role": "user", "content": "Say ok."}],
+        stream=True,
+    )
+    return [chunk async for chunk in stream]
+
+
+async def test_a_streaming_request_reports_authentication_failure_too():
+    """Streaming is the usual path, so it cannot be the one that hides failures."""
+    client = bridge_for([failed_result("Not logged in · Please run /login")])
+
+    with pytest.raises(AuthenticationError):
+        await stream_ok(client)
+
+
+async def test_a_streaming_request_reports_an_exhausted_window():
+    resets_at = int(time.time()) + 300
+    client = bridge_for(
+        [rate_limit_event(resets_at), failed_result("Claude usage limit reached.")]
+    )
+
+    with pytest.raises(RateLimitError) as failure:
+        await stream_ok(client)
+
+    assert int(failure.value.response.headers["retry-after"]) <= 300
+
+
 class RaisingClaudeCli:
     """Stands in for a CLI that fails partway rather than answering."""
 
