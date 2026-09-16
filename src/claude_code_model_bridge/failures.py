@@ -3,6 +3,12 @@
 from dataclasses import dataclass
 from typing import Any
 
+from claude_code_model_bridge.claude_process import (
+    ApiKeyPresent,
+    ClaudeFailed,
+    ClaudeTimedOut,
+)
+
 
 @dataclass(frozen=True)
 class Failure:
@@ -22,6 +28,30 @@ class Failure:
                 "param": None,
             }
         }
+
+
+def failure_from(error: Exception) -> Failure:
+    """Classifies a run that raised instead of finishing."""
+    if isinstance(error, ApiKeyPresent):
+        return Failure(
+            status=500,
+            message=(
+                "The bridge runs on a Claude subscription and refuses to run while "
+                "a billable credential is present. Unset ANTHROPIC_API_KEY and "
+                f"ANTHROPIC_AUTH_TOKEN, then restart it. ({error})"
+            ),
+            type="api_error",
+            code="billable_credential_present",
+        )
+    if isinstance(error, ClaudeTimedOut):
+        return Failure(
+            status=504, message=str(error), type="api_error", code="timeout"
+        )
+    if isinstance(error, ClaudeFailed):
+        return Failure(
+            status=502, message=str(error), type="api_error", code="upstream_failure"
+        )
+    raise error
 
 
 def failure_in(events: list[dict[str, Any]]) -> Failure | None:

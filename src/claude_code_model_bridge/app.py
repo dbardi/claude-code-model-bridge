@@ -10,7 +10,7 @@ from starlette.routing import Route
 
 from claude_code_model_bridge.catalog import ModelCatalog, UnknownModel
 from claude_code_model_bridge.claude_cli import ClaudeCli
-from claude_code_model_bridge.failures import failure_in
+from claude_code_model_bridge.failures import failure_from, failure_in
 from claude_code_model_bridge.request_log import RequestRecord
 from claude_code_model_bridge.translation import (
     build_invocation,
@@ -57,7 +57,12 @@ def create_app(
                 ),
                 media_type="text/event-stream",
             )
-        events = [event async for event in _limited(claude_cli.run(invocation))]
+        try:
+            events = [event async for event in _limited(claude_cli.run(invocation))]
+        except Exception as error:
+            failure = failure_from(error)
+            record.finished(failure.code)
+            return JSONResponse(failure.body(), status_code=failure.status)
         record.note_usage(usage_from_events(events))
         failure = failure_in(events)
         if failure is not None:
