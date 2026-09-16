@@ -1,5 +1,6 @@
 """Turns a failed run into the status a caller knows how to act on."""
 
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -18,6 +19,11 @@ class Failure:
     message: str
     type: str
     code: str
+    retry_after: int | None = None
+
+    def headers(self) -> dict[str, str]:
+        """Tells a caller when to come back, when that is knowable."""
+        return {} if self.retry_after is None else {"Retry-After": str(self.retry_after)}
 
     def body(self) -> dict[str, Any]:
         return {
@@ -61,10 +67,41 @@ def failure_in(events: list[dict[str, Any]]) -> Failure | None:
     )
     if result is None or not result.get("is_error"):
         return None
-    return _classify(str(result.get("result", "")))
+    return _classify(str(result.get("result", "")), _resets_at(events))
 
 
-def _classify(message: str) -> Failure:
+def _seconds_until(resets_at: int | None) -> int | None:
+    """Converts a reset time into a wait, never asking for a wait of zero."""
+    if resets_at is None:
+        return None
+    return max(1, int(resets_at - time.time()))
+
+
+def _resets_at(events: list[dict[str, Any]]) -> int | None:
+    """When the usage window reopens, if the run reported it as closed.
+
+    Every run reports the window, including successful ones, so only a
+    window that is not currently allowing work says anything useful here.
+    """
+    for event in reversed(events):
+        if event.get("type") != "rate_limit_event":
+            continue
+        info = event.get("rate_limit_info", {})
+        if info.get("status") != "allowed":
+            return info.get("resetsAt")
+    return None
+
+
+def _classify(message: str, resets_at: int | None) -> Failure:
+    lowered = message.lower()
+    if resets_at is not None or "usage limit" in lowered or "rate limit" in lowered:
+        return Failure(
+            status=429,
+            message=message,
+            type="rate_limit_error",
+            code="usage_limit_reached",
+            retry_after=_seconds_until(resets_at),
+        )
     if "/login" in message or "not logged in" in message.lower():
         return Failure(
             status=401,

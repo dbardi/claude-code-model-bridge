@@ -60,14 +60,11 @@ def create_app(
         try:
             events = [event async for event in _limited(claude_cli.run(invocation))]
         except Exception as error:
-            failure = failure_from(error)
-            record.finished(failure.code)
-            return JSONResponse(failure.body(), status_code=failure.status)
+            return _reported(failure_from(error), record)
         record.note_usage(usage_from_events(events))
         failure = failure_in(events)
         if failure is not None:
-            record.finished(failure.code)
-            return JSONResponse(failure.body(), status_code=failure.status)
+            return _reported(failure, record)
         completion = completion_from_events(events, model=body["model"])
         record.finished()
         return JSONResponse(completion)
@@ -97,6 +94,13 @@ def create_app(
 
     async def list_models(request: Request) -> JSONResponse:
         return JSONResponse(catalog.listing())
+
+    def _reported(failure, record) -> JSONResponse:
+        """Records the failure, then hands the caller what it needs to react."""
+        record.finished(failure.code)
+        return JSONResponse(
+            failure.body(), status_code=failure.status, headers=failure.headers()
+        )
 
     def _unknown_model(model: str) -> JSONResponse:
         """Reports an unusable model id the way callers expect to read it."""
