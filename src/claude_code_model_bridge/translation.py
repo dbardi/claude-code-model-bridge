@@ -15,7 +15,40 @@ def build_invocation(request: dict[str, Any]) -> Invocation:
         Turn(role=message["role"], text=message["content"])
         for message in request["messages"]
     )
-    return Invocation(model=request["model"], turns=turns)
+    return Invocation(
+        model=request["model"],
+        turns=turns,
+        output_schema=_output_schema(request.get("tools") or []),
+    )
+
+
+def _output_schema(tools: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Constrains the answer to prose plus calls to the declared tools.
+
+    The name enum is what makes an undeclared tool name impossible rather
+    than merely discouraged.
+    """
+    if not tools:
+        return None
+    names = [tool["function"]["name"] for tool in tools]
+    return {
+        "type": "object",
+        "properties": {
+            "content": {"type": "string"},
+            "tool_calls": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "enum": names},
+                        "arguments": {"type": "object"},
+                    },
+                    "required": ["name", "arguments"],
+                },
+            },
+        },
+        "required": ["content", "tool_calls"],
+    }
 
 
 def completion_from_events(events: list[dict[str, Any]], model: str) -> dict[str, Any]:
