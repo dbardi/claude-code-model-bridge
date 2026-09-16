@@ -16,15 +16,36 @@ CONTINUE = "Continue."
 def build_invocation(request: dict[str, Any], resolution: Resolution) -> Invocation:
     """Turns an OpenAI chat completion request into a single Claude invocation."""
     messages = request["messages"]
+    tools = request.get("tools") or []
     return Invocation(
         model=resolution.cli_model,
         turns=_turns(messages),
-        output_schema=_output_schema(
-            request.get("tools") or [], request.get("tool_choice")
-        ),
-        system_prompt=_system_prompt(messages),
+        output_schema=_output_schema(tools, request.get("tool_choice")),
+        system_prompt=_system_prompt(messages) + _tool_documentation(tools),
         effort=resolution.effort or request.get("reasoning_effort"),
     )
+
+
+def _tool_documentation(tools: list[dict[str, Any]]) -> str:
+    """Describes the declared tools, since the schema carries only their names."""
+    if not tools:
+        return ""
+    described = "\n\n".join(_described(tool["function"]) for tool in tools)
+    return (
+        "\n\n# Tools you may call\n\n"
+        "Put calls in `tool_calls`, using the arguments each tool declares. "
+        "Their results come back in the conversation before you answer.\n\n"
+        f"{described}"
+    )
+
+
+def _described(function: dict[str, Any]) -> str:
+    lines = [f"## {function['name']}"]
+    if function.get("description"):
+        lines.append(function["description"])
+    if function.get("parameters"):
+        lines.append(f"Arguments: {json.dumps(function['parameters'])}")
+    return "\n".join(lines)
 
 
 def _system_prompt(messages: list[dict[str, Any]]) -> str:
