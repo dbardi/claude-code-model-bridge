@@ -10,6 +10,25 @@ from typing import Any
 
 from claude_code_model_bridge.claude_cli import Invocation
 
+BILLABLE_CREDENTIALS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
+"""Credentials that would move spending from the subscription onto paid API billing."""
+
+REDIRECTS = (
+    "ANTHROPIC_BASE_URL",
+    "CLAUDE_CODE_USE_BEDROCK",
+    "CLAUDE_CODE_USE_VERTEX",
+    "CLAUDE_CODE_USE_FOUNDRY",
+)
+"""Variables that would send calls somewhere other than the subscription login."""
+
+
+class ApiKeyPresent(Exception):
+    """Raised when the environment offers credentials that could be billed."""
+
+
+class ClaudeFailed(Exception):
+    """Raised when the CLI exits without producing an answer."""
+
 
 class ClaudeProcess:
     """Answers an invocation by running the CLI once."""
@@ -18,10 +37,14 @@ class ClaudeProcess:
         self, executable: str = "claude", environment: dict[str, str] | None = None
     ) -> None:
         self._executable = executable
-        self._environment = dict(environment) if environment is not None else dict(os.environ)
+        source = dict(environment) if environment is not None else dict(os.environ)
+        self._environment = {
+            name: value for name, value in source.items() if name not in REDIRECTS
+        }
 
     async def run(self, invocation: Invocation) -> AsyncIterator[dict[str, Any]]:
         """Runs the CLI, yielding each event it prints as it arrives."""
+        self._refuse_billable_credentials()
         with TemporaryDirectory(prefix="claude-bridge-") as workspace:
             prompt_file = Path(workspace) / "system-prompt.txt"
             prompt_file.write_text(invocation.system_prompt)
@@ -37,11 +60,28 @@ class ClaudeProcess:
             process.stdin.write(self._conversation(invocation).encode())
             await process.stdin.drain()
             process.stdin.close()
+            answered = False
             async for line in process.stdout:
                 text = line.decode().strip()
                 if text:
+                    answered = True
                     yield json.loads(text)
-            await process.wait()
+            if await process.wait() != 0 and not answered:
+                stderr = (await process.stderr.read()).decode().strip()
+                raise ClaudeFailed(stderr or f"claude exited with {process.returncode}")
+
+    def _refuse_billable_credentials(self) -> None:
+        """Stops before spending anything but the subscription login.
+
+        A key in the environment would let the CLI bill paid API usage
+        instead, which is the one outcome this bridge exists to avoid.
+        """
+        offered = [name for name in BILLABLE_CREDENTIALS if self._environment.get(name)]
+        if offered:
+            raise ApiKeyPresent(
+                f"{', '.join(offered)} is set. This bridge runs on a Claude "
+                "subscription and refuses to run where API billing is possible."
+            )
 
     def _arguments(self, invocation: Invocation, prompt_file: Path) -> list[str]:
         """Builds the command line, isolated from local configuration.
