@@ -47,18 +47,22 @@ async def stream_chunks(
     """Emits an OpenAI chunk for each fragment of text Claude produces."""
     completion_id = f"chatcmpl-{uuid.uuid4().hex}"
     created = int(time.time())
+    def chunk(delta: dict[str, Any], finish_reason: str | None) -> dict[str, Any]:
+        return {
+            "id": completion_id,
+            "object": "chat.completion.chunk",
+            "created": created,
+            "model": model,
+            "choices": [
+                {"index": 0, "delta": delta, "finish_reason": finish_reason}
+            ],
+        }
+
     async for event in events:
         text = _text_fragment(event)
         if text:
-            yield {
-                "id": completion_id,
-                "object": "chat.completion.chunk",
-                "created": created,
-                "model": model,
-                "choices": [
-                    {"index": 0, "delta": {"content": text}, "finish_reason": None}
-                ],
-            }
+            yield chunk({"content": text}, None)
+    yield chunk({}, "stop")
 
 
 def _text_fragment(event: dict[str, Any]) -> str:
