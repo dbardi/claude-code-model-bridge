@@ -38,6 +38,32 @@ Configuration comes from the environment:
 | `CLAUDE_BRIDGE_CATALOG` | the shipped `models.yaml` | Path to a catalog file |
 | `CLAUDE_BRIDGE_MAX_CONCURRENT` | `4` | How many calls may run at once |
 
+## Installing it as a service
+
+On a machine with systemd, `scripts/install.sh` installs the bridge as a user
+service that starts at boot and restarts if it stops.
+
+```bash
+./scripts/install.sh --check      # check prerequisites, change nothing
+./scripts/install.sh              # install and start the service
+./scripts/install.sh --uninstall  # stop and remove it
+```
+
+The script installs only the service. It never edits the configuration of
+whatever client will use the bridge, so a failed install cannot take your
+assistant offline; pointing a client at the bridge stays a separate,
+deliberate step.
+
+Afterwards:
+
+```bash
+systemctl --user status claude-model-bridge
+journalctl --user -u claude-model-bridge -f
+```
+
+Lingering must be enabled for a user service to run before you log in
+(`sudo loginctl enable-linger $USER`). The script says so if it is off.
+
 ## Pointing a client at it
 
 Any OpenAI-compatible client works. Give it the base URL and any API key
