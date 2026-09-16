@@ -1,10 +1,13 @@
 """Behavior of the assembled application: the bridge as something you can run."""
 
+import asyncio
+
 import httpx
 from openai import AsyncOpenAI
 
 from claude_code_model_bridge.catalog import ModelCatalog
 from claude_code_model_bridge.runtime import DEFAULT_CATALOG, Settings, build_application
+from tests.test_concurrency import CountingClaudeCli
 
 BASE_URL = "http://bridge.test/v1"
 
@@ -31,6 +34,28 @@ async def test_serves_the_catalog_named_in_configuration(tmp_path):
 
     listing = await client_for(app).models.list()
     assert [model.id for model in listing.data] == ["configured-model"]
+
+
+async def test_the_configured_concurrency_cap_is_applied(tmp_path):
+    catalog_file = tmp_path / "models.yaml"
+    catalog_file.write_text(CATALOG)
+    claude = CountingClaudeCli()
+
+    app = build_application(
+        Settings(catalog_path=catalog_file, max_concurrent=1), claude_cli=claude
+    )
+
+    client = client_for(app)
+    await asyncio.gather(
+        *(
+            client.chat.completions.create(
+                model="configured-model",
+                messages=[{"role": "user", "content": "Say ok."}],
+            )
+            for _ in range(4)
+        )
+    )
+    assert claude.most_at_once == 1
 
 
 def test_settings_come_from_the_environment():
