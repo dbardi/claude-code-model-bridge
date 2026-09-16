@@ -67,7 +67,26 @@ def failure_in(events: list[dict[str, Any]]) -> Failure | None:
     )
     if result is None or not result.get("is_error"):
         return None
+    reported = _reported_status(result)
+    if reported is not None:
+        return reported
     return _classify(str(result.get("result", "")), _resets_at(events))
+
+
+def _reported_status(result: dict[str, Any]) -> Failure | None:
+    """Uses the status the run reported, when it reported one.
+
+    The CLI names the cause of some failures outright, which beats
+    inferring it from wording that changes between releases.
+    """
+    if result.get("api_error_status") != 404:
+        return None
+    return Failure(
+        status=404,
+        message=str(result.get("result", "")),
+        type="invalid_request_error",
+        code="model_not_found",
+    )
 
 
 def _seconds_until(resets_at: int | None) -> int | None:
