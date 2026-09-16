@@ -1,12 +1,18 @@
 """The HTTP seam: the OpenAI-compatible surface Hermes talks to."""
 
+import json
+
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, StreamingResponse
 from starlette.routing import Route
 
 from claude_code_model_bridge.claude_cli import ClaudeCli
-from claude_code_model_bridge.translation import build_invocation, completion_from_events
+from claude_code_model_bridge.translation import (
+    build_invocation,
+    completion_from_events,
+    stream_chunks,
+)
 
 
 def create_app(claude_cli: ClaudeCli) -> Starlette:
@@ -15,8 +21,18 @@ def create_app(claude_cli: ClaudeCli) -> Starlette:
     async def create_chat_completion(request: Request) -> JSONResponse:
         body = await request.json()
         invocation = build_invocation(body)
+        if body.get("stream"):
+            return StreamingResponse(
+                _server_sent_events(claude_cli.run(invocation), model=body["model"]),
+                media_type="text/event-stream",
+            )
         events = [event async for event in claude_cli.run(invocation)]
         return JSONResponse(completion_from_events(events, model=body["model"]))
+
+    async def _server_sent_events(events, model: str):
+        async for chunk in stream_chunks(events, model=model):
+            yield f"data: {json.dumps(chunk)}\n\n"
+        yield "data: [DONE]\n\n"
 
     return Starlette(
         routes=[Route("/v1/chat/completions", create_chat_completion, methods=["POST"])]

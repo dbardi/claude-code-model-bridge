@@ -2,6 +2,7 @@
 
 import time
 import uuid
+from collections.abc import AsyncIterator
 from typing import Any
 
 from claude_code_model_bridge.claude_cli import Invocation, Turn
@@ -38,3 +39,33 @@ def _answer(events: list[dict[str, Any]]) -> str:
         if event.get("type") == "result":
             return event.get("result", "")
     return ""
+
+
+async def stream_chunks(
+    events: AsyncIterator[dict[str, Any]], model: str
+) -> AsyncIterator[dict[str, Any]]:
+    """Emits an OpenAI chunk for each fragment of text Claude produces."""
+    completion_id = f"chatcmpl-{uuid.uuid4().hex}"
+    created = int(time.time())
+    async for event in events:
+        text = _text_fragment(event)
+        if text:
+            yield {
+                "id": completion_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": model,
+                "choices": [
+                    {"index": 0, "delta": {"content": text}, "finish_reason": None}
+                ],
+            }
+
+
+def _text_fragment(event: dict[str, Any]) -> str:
+    if event.get("type") != "stream_event":
+        return ""
+    inner = event.get("event", {})
+    if inner.get("type") != "content_block_delta":
+        return ""
+    delta = inner.get("delta", {})
+    return delta.get("text", "") if delta.get("type") == "text_delta" else ""
