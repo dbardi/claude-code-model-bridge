@@ -10,6 +10,7 @@ from starlette.routing import Route
 
 from claude_code_model_bridge.catalog import ModelCatalog, UnknownModel
 from claude_code_model_bridge.claude_cli import ClaudeCli
+from claude_code_model_bridge.debug_dump import record_request
 from claude_code_model_bridge.failures import failure_from, failure_in
 from claude_code_model_bridge.request_log import RequestRecord
 from claude_code_model_bridge.unsupported import ignored_in
@@ -41,6 +42,7 @@ def create_app(
                 f"The tool `{undeclared}` was required but not declared in `tools`.",
                 param="tool_choice",
             )
+        record_request(body, invocation)
         streaming = bool(body.get("stream"))
         ignored = ignored_in(body)
         record = RequestRecord(

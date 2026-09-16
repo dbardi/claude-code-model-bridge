@@ -8,7 +8,6 @@ from typing import Any
 
 from claude_code_model_bridge.catalog import Resolution
 from claude_code_model_bridge.claude_cli import Invocation, Turn
-from claude_code_model_bridge.json_text import StringFieldReader
 
 CONTINUE = "Continue."
 """Closing turn for a conversation that ends on an assistant message."""
@@ -243,8 +242,9 @@ async def stream_chunks(
 ) -> AsyncIterator[dict[str, Any]]:
     """Emits an OpenAI chunk per fragment of text.
 
-    Under a schema the CLI answers twice, as plain text then as structured
-    output; only the structured answer is forwarded.
+    Under a schema the CLI may answer several times, as plain text and then
+    as one or more structured answers. Only the last answer is the reply, so
+    it is sent once the run ends rather than streamed as it arrives.
     """
     completion_id = f"chatcmpl-{uuid.uuid4().hex}"
     created = int(time.time())
@@ -263,15 +263,12 @@ async def stream_chunks(
     tool_calls: list[dict[str, Any]] = []
     answer = ""
     said_anything = False
-    prose = StringFieldReader("content")
     async for event in events:
-        if schema_mode:
-            text = prose.feed(_json_fragment(event))
-        else:
+        if not schema_mode:
             text = _text_fragment(event)
-        if text:
-            said_anything = True
-            yield chunk({"content": text}, None)
+            if text:
+                said_anything = True
+                yield chunk({"content": text}, None)
         if event.get("type") == "result":
             usage = _usage(event)
             tool_calls = _tool_calls(event)
