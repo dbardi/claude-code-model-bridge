@@ -10,6 +10,7 @@ from starlette.routing import Route
 
 from claude_code_model_bridge.catalog import ModelCatalog, UnknownModel
 from claude_code_model_bridge.claude_cli import ClaudeCli
+from claude_code_model_bridge.failures import failure_from, failure_in
 from claude_code_model_bridge.request_log import RequestRecord
 from claude_code_model_bridge.translation import (
     build_invocation,
@@ -45,9 +46,17 @@ def create_app(
             streaming=streaming,
         )
         if streaming:
+            events = _limited(claude_cli.run(invocation))
+            try:
+                opening = await _until_output(events)
+            except Exception as error:
+                return _reported(failure_from(error), record)
+            failure = failure_in(opening)
+            if failure is not None:
+                return _reported(failure, record)
             return StreamingResponse(
                 _server_sent_events(
-                    _limited(claude_cli.run(invocation)),
+                    _replayed(opening, events),
                     model=body["model"],
                     include_usage=bool(
                         (body.get("stream_options") or {}).get("include_usage")
@@ -56,11 +65,41 @@ def create_app(
                 ),
                 media_type="text/event-stream",
             )
-        events = [event async for event in _limited(claude_cli.run(invocation))]
-        completion = completion_from_events(events, model=body["model"])
+        try:
+            events = [event async for event in _limited(claude_cli.run(invocation))]
+        except Exception as error:
+            return _reported(failure_from(error), record)
         record.note_usage(usage_from_events(events))
+        failure = failure_in(events)
+        if failure is not None:
+            return _reported(failure, record)
+        completion = completion_from_events(events, model=body["model"])
         record.finished()
         return JSONResponse(completion)
+
+    async def _until_output(events) -> list:
+        """Reads ahead until the answer starts, so failures still have a status.
+
+        Once a stream has begun there is no status left to send: the headers
+        are gone. A failed run produces no output at all, so reading up to
+        the first content event costs nothing and keeps the failure
+        reportable.
+        """
+        opening = []
+        async for event in events:
+            opening.append(event)
+            if event.get("type") in ("stream_event", "assistant"):
+                break
+            if event.get("type") == "result":
+                break
+        return opening
+
+    async def _replayed(opening: list, rest):
+        """Re-emits what was read ahead, then continues with the live run."""
+        for event in opening:
+            yield event
+        async for event in rest:
+            yield event
 
     async def _limited(events):
         """Runs one call, waiting its turn if too many are already running."""
@@ -87,6 +126,13 @@ def create_app(
 
     async def list_models(request: Request) -> JSONResponse:
         return JSONResponse(catalog.listing())
+
+    def _reported(failure, record) -> JSONResponse:
+        """Records the failure, then hands the caller what it needs to react."""
+        record.finished(failure.code)
+        return JSONResponse(
+            failure.body(), status_code=failure.status, headers=failure.headers()
+        )
 
     def _unknown_model(model: str) -> JSONResponse:
         """Reports an unusable model id the way callers expect to read it."""
