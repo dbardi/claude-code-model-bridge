@@ -1,6 +1,13 @@
 """Behavior at the HTTP seam: what a client sees when it asks for a completion."""
 
-from tests.cli_events import assistant_text_event, result_event, text_delta_event
+import json
+
+from tests.cli_events import (
+    assistant_text_event,
+    result_event,
+    structured_result_event,
+    text_delta_event,
+)
 from tests.models import MODEL
 
 
@@ -73,3 +80,39 @@ async def test_streaming_completion_reports_usage_when_asked(bridge):
     assert usages[-1].prompt_tokens == 125
     assert usages[-1].completion_tokens == 7
     assert usages[-1].total_tokens == 132
+
+
+TERMINAL_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "terminal",
+        "description": "Run a shell command",
+        "parameters": {
+            "type": "object",
+            "properties": {"command": {"type": "string"}},
+            "required": ["command"],
+        },
+    },
+}
+
+
+async def test_a_requested_tool_comes_back_as_a_tool_call(bridge):
+    client, _ = bridge(
+        [
+            structured_result_event(
+                "Checking the disk.",
+                [{"name": "terminal", "arguments": {"command": "df -h /home"}}],
+            )
+        ]
+    )
+
+    completion = await client.chat.completions.create(
+        model=MODEL,
+        messages=[{"role": "user", "content": "How much disk is free?"}],
+        tools=[TERMINAL_TOOL],
+    )
+
+    call = completion.choices[0].message.tool_calls[0]
+    assert call.function.name == "terminal"
+    assert json.loads(call.function.arguments) == {"command": "df -h /home"}
+    assert completion.choices[0].finish_reason == "tool_calls"

@@ -54,3 +54,13 @@ def text_delta_event(text: str) -> dict[str, Any]:
             "delta": {"type": "text_delta", "text": text},
         },
     }
+
+
+def structured_result_event(
+    content: str, tool_calls: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """A `result` event carrying schema-validated structured output."""
+    event = result_event(content)
+    event["structured_output"] = {"content": content, "tool_calls": tool_calls}
+    event["stop_reason"] = "tool_use"
+    return event
