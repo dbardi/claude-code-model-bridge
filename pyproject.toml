@@ -1,0 +1,31 @@
+[project]
+name = "claude-code-model-bridge"
+version = "0.1.0"
+description = "Presents the Claude Code CLI to Hermes Agent as an OpenAI-compatible model endpoint"
+authors = [
+    { name = "Daniel Bardi", email = "dbardi@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "pyyaml==6.0.3",
+    "starlette==1.6.0",
+    "uvicorn==0.53.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.7,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "httpx==0.28.1",
+    "openai==2.24.0",
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = ["live: hits the real Claude CLI and consumes subscription quota"]
+addopts = "-m 'not live'"
