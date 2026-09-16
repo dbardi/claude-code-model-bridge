@@ -163,6 +163,23 @@ async def test_a_configured_plugin_directory_is_loaded(claude_stub, tmp_path):
     assert argv[argv.index("--plugin-dir") + 1] == str(skills)
 
 
+async def test_skills_can_be_chosen_only_where_plugins_are_loaded(claude_stub, tmp_path):
+    """Choosing a skill needs the Skill tool, which loads text and runs nothing."""
+    skills = tmp_path / "skills"
+    skills.mkdir()
+
+    process = claude_stub(plugin_dir=skills)
+    [event async for event in process.run(an_invocation())]
+    with_plugins = claude_stub.record()["argv"]
+
+    process = claude_stub()
+    [event async for event in process.run(an_invocation())]
+    without_plugins = claude_stub.record()["argv"]
+
+    assert with_plugins[with_plugins.index("--tools") + 1] == "Skill"
+    assert without_plugins[without_plugins.index("--tools") + 1] == ""
+
+
 async def test_a_run_that_overruns_its_cap_is_stopped(claude_stub):
     process = claude_stub(
         events=[{"type": "stream_event"}], linger_seconds=30, total_seconds=0.2
