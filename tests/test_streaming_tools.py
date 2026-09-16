@@ -75,3 +75,47 @@ async def test_escapes_split_across_fragments_survive(bridge):
     text, _ = await collect(stream)
 
     assert text == 'He said "café" \nfine.'
+
+
+async def test_tool_calls_arrive_once_the_json_closes(bridge):
+    client, _ = bridge(
+        [
+            json_delta_event('{"content": "Checking.", "tool_calls": [{"name": "term'),
+            json_delta_event('inal", "arguments": {"command": "df -h"}}]}'),
+            structured_result_event(
+                "Checking.", [{"name": "terminal", "arguments": {"command": "df -h"}}]
+            ),
+        ]
+    )
+
+    stream = await client.chat.completions.create(
+        model=MODEL,
+        messages=[{"role": "user", "content": "Check the disk."}],
+        tools=[TERMINAL_TOOL],
+        stream=True,
+    )
+    text, calls = await collect(stream)
+    reasons = []
+    assert text == "Checking."
+    assert calls[0].function.name == "terminal"
+    assert json.loads(calls[0].function.arguments) == {"command": "df -h"}
+
+
+async def test_a_stream_that_requested_tools_finishes_as_tool_calls(bridge):
+    client, _ = bridge(
+        [
+            structured_result_event(
+                "Checking.", [{"name": "terminal", "arguments": {"command": "df -h"}}]
+            )
+        ]
+    )
+
+    stream = await client.chat.completions.create(
+        model=MODEL,
+        messages=[{"role": "user", "content": "Check the disk."}],
+        tools=[TERMINAL_TOOL],
+        stream=True,
+    )
+    reasons = [c.choices[0].finish_reason async for c in stream if c.choices]
+
+    assert reasons[-1] == "tool_calls"
