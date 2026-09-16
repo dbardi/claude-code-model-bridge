@@ -8,7 +8,9 @@ import pytest
 from openai import AsyncOpenAI
 
 from claude_code_model_bridge.app import create_app
+from claude_code_model_bridge.catalog import ModelCatalog
 from claude_code_model_bridge.claude_cli import Invocation
+from tests.models import CATALOG_YAML
 
 BASE_URL = "http://bridge.test/v1"
 
@@ -30,9 +32,14 @@ class FakeClaudeCli:
 def bridge():
     """Builds a bridge whose Claude seam is filled by a fake, plus a client for it."""
 
-    def build(events: Iterable[dict[str, Any]]) -> tuple[AsyncOpenAI, FakeClaudeCli]:
+    def build(
+        events: Iterable[dict[str, Any]], catalog: ModelCatalog | None = None
+    ) -> tuple[AsyncOpenAI, FakeClaudeCli]:
         claude_cli = FakeClaudeCli(events)
-        app = create_app(claude_cli=claude_cli)
+        app = create_app(
+            claude_cli=claude_cli,
+            catalog=catalog or ModelCatalog.from_yaml(CATALOG_YAML),
+        )
         http_client = httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url=BASE_URL
         )
