@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from claude_code_model_bridge.claude_cli import Invocation, Turn
+from claude_code_model_bridge.json_text import StringFieldReader
 
 CONTINUE = "Continue."
 """Closes a conversation that ends on an assistant turn, which Claude cannot answer."""
@@ -232,8 +233,9 @@ async def stream_chunks(
         }
 
     usage = None
+    prose = StringFieldReader("content")
     async for event in events:
-        text = _text_fragment(event)
+        text = _text_fragment(event) or prose.feed(_json_fragment(event))
         if text:
             yield chunk({"content": text}, None)
         if event.get("type") == "result":
@@ -276,3 +278,14 @@ def _usage(result_event: dict[str, Any]) -> dict[str, Any]:
         "total_tokens": prompt_tokens + completion_tokens,
         "prompt_tokens_details": {"cached_tokens": cache_read},
     }
+
+
+def _json_fragment(event: dict[str, Any]) -> str:
+    """A fragment of the schema-validated answer, still mid-JSON."""
+    if event.get("type") != "stream_event":
+        return ""
+    inner = event.get("event", {})
+    if inner.get("type") != "content_block_delta":
+        return ""
+    delta = inner.get("delta", {})
+    return delta.get("partial_json", "") if delta.get("type") == "input_json_delta" else ""
