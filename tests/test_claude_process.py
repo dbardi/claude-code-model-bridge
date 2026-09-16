@@ -13,9 +13,17 @@ from claude_code_model_bridge.claude_process import ClaudeProcess
 STUB = """#!/usr/bin/env python3
 import json, os, sys
 
-Path = os.environ["STUB_RECORD"]
-record = {"argv": sys.argv[1:], "stdin": sys.stdin.read(), "env_had_key": "ANTHROPIC_API_KEY" in os.environ}
-open(Path, "w").write(json.dumps(record))
+argv = sys.argv[1:]
+prompt = ""
+if "--system-prompt-file" in argv:
+    prompt = open(argv[argv.index("--system-prompt-file") + 1]).read()
+record = {
+    "argv": argv,
+    "stdin": sys.stdin.read(),
+    "system_prompt": prompt,
+    "env_had_key": "ANTHROPIC_API_KEY" in os.environ,
+}
+open(os.environ["STUB_RECORD"], "w").write(json.dumps(record))
 for line in json.loads(os.environ.get("STUB_EVENTS", "[]")):
     print(json.dumps(line), flush=True)
 sys.exit(int(os.environ.get("STUB_EXIT", "0")))
@@ -95,9 +103,7 @@ async def test_the_system_prompt_travels_in_a_file(claude_stub):
 
     [event async for event in process.run(an_invocation(system_prompt=prompt))]
 
-    argv = claude_stub.record()["argv"]
-    written = Path(argv[argv.index("--system-prompt-file") + 1])
-    assert written.read_text() == prompt
+    assert claude_stub.record()["system_prompt"] == prompt
 
 
 async def test_the_system_prompt_file_is_cleaned_up(claude_stub):

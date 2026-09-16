@@ -4,6 +4,8 @@ import asyncio
 import json
 import os
 from collections.abc import AsyncIterator
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 
 from claude_code_model_bridge.claude_cli import Invocation
@@ -20,24 +22,28 @@ class ClaudeProcess:
 
     async def run(self, invocation: Invocation) -> AsyncIterator[dict[str, Any]]:
         """Runs the CLI, yielding each event it prints as it arrives."""
-        process = await asyncio.create_subprocess_exec(
-            self._executable,
-            *self._arguments(invocation),
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=self._environment,
-        )
-        process.stdin.write(self._conversation(invocation).encode())
-        await process.stdin.drain()
-        process.stdin.close()
-        async for line in process.stdout:
-            text = line.decode().strip()
-            if text:
-                yield json.loads(text)
-        await process.wait()
+        with TemporaryDirectory(prefix="claude-bridge-") as workspace:
+            prompt_file = Path(workspace) / "system-prompt.txt"
+            prompt_file.write_text(invocation.system_prompt)
+            process = await asyncio.create_subprocess_exec(
+                self._executable,
+                *self._arguments(invocation, prompt_file),
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=self._environment,
+                cwd=workspace,
+            )
+            process.stdin.write(self._conversation(invocation).encode())
+            await process.stdin.drain()
+            process.stdin.close()
+            async for line in process.stdout:
+                text = line.decode().strip()
+                if text:
+                    yield json.loads(text)
+            await process.wait()
 
-    def _arguments(self, invocation: Invocation) -> list[str]:
+    def _arguments(self, invocation: Invocation, prompt_file: Path) -> list[str]:
         """Builds the command line, isolated from local configuration.
 
         The isolation flags are load-bearing rather than tidiness: without
@@ -45,7 +51,7 @@ class ClaudeProcess:
         context, which on a subscription is spent from the usage window. See
         docs/adr/0005.
         """
-        return [
+        arguments = [
             "--print",
             "--setting-sources",
             "",
@@ -61,7 +67,14 @@ class ClaudeProcess:
             "--include-partial-messages",
             "--model",
             invocation.model,
+            "--system-prompt-file",
+            str(prompt_file),
         ]
+        if invocation.output_schema is not None:
+            arguments += ["--json-schema", json.dumps(invocation.output_schema)]
+        if invocation.effort:
+            arguments += ["--effort", invocation.effort]
+        return arguments
 
     def _conversation(self, invocation: Invocation) -> str:
         """Renders the turns as the stream-json input the CLI reads from stdin."""
