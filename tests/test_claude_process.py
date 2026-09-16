@@ -89,6 +89,53 @@ async def test_every_call_is_isolated_from_local_configuration(claude_stub):
     assert argv[argv.index("--tools") + 1] == ""
 
 
+async def test_the_system_prompt_travels_in_a_file(claude_stub):
+    process = claude_stub()
+    prompt = "You are a terse assistant. " + "Filler. " * 5000
+
+    [event async for event in process.run(an_invocation(system_prompt=prompt))]
+
+    argv = claude_stub.record()["argv"]
+    written = Path(argv[argv.index("--system-prompt-file") + 1])
+    assert written.read_text() == prompt
+
+
+async def test_the_system_prompt_file_is_cleaned_up(claude_stub):
+    process = claude_stub()
+
+    [event async for event in process.run(an_invocation())]
+
+    argv = claude_stub.record()["argv"]
+    assert not Path(argv[argv.index("--system-prompt-file") + 1]).exists()
+
+
+async def test_a_schema_is_passed_only_when_tools_were_declared(claude_stub):
+    schema = {"type": "object", "properties": {"content": {"type": "string"}}}
+    process = claude_stub()
+
+    [event async for event in process.run(an_invocation(output_schema=schema))]
+    with_schema = claude_stub.record()["argv"]
+
+    [event async for event in process.run(an_invocation())]
+    without_schema = claude_stub.record()["argv"]
+
+    assert json.loads(with_schema[with_schema.index("--json-schema") + 1]) == schema
+    assert "--json-schema" not in without_schema
+
+
+async def test_thinking_depth_is_passed_only_when_asked_for(claude_stub):
+    process = claude_stub()
+
+    [event async for event in process.run(an_invocation(effort="high"))]
+    with_effort = claude_stub.record()["argv"]
+
+    [event async for event in process.run(an_invocation())]
+    without_effort = claude_stub.record()["argv"]
+
+    assert with_effort[with_effort.index("--effort") + 1] == "high"
+    assert "--effort" not in without_effort
+
+
 async def test_the_conversation_reaches_the_cli_as_stream_json(claude_stub):
     process = claude_stub()
     invocation = an_invocation(
