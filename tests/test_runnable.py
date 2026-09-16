@@ -111,6 +111,16 @@ def test_a_model_released_after_this_catalog_still_works():
     assert catalog.resolve(unreleased).cli_model == unreleased
 
 
+def test_a_plugin_directory_can_be_configured():
+    settings = Settings.from_environment({"CLAUDE_BRIDGE_PLUGIN_DIR": "/skills"})
+
+    assert str(settings.plugin_dir) == "/skills"
+
+
+def test_no_plugin_directory_is_configured_by_default():
+    assert Settings.from_environment({}).plugin_dir is None
+
+
 def test_settings_have_usable_defaults():
     settings = Settings.from_environment({})
 
