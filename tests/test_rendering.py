@@ -18,3 +18,37 @@ async def test_system_messages_become_the_system_prompt(bridge):
     invocation = claude.invocations[0]
     assert invocation.system_prompt == "You are a terse assistant."
     assert [turn.role for turn in invocation.turns] == ["user"]
+
+
+async def test_tool_history_is_replayed_as_text(bridge):
+    client, claude = bridge([result_event("467G free")])
+
+    await client.chat.completions.create(
+        model=MODEL,
+        messages=[
+            {"role": "user", "content": "How much disk is free?"},
+            {
+                "role": "assistant",
+                "content": "Checking.",
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {
+                            "name": "terminal",
+                            "arguments": '{"command": "df -h /home"}',
+                        },
+                    }
+                ],
+            },
+            {"role": "tool", "tool_call_id": "call_1", "content": "467G available"},
+        ],
+    )
+
+    turns = claude.invocations[0].turns
+    assert turns[1].role == "assistant"
+    assert "Checking." in turns[1].text
+    assert '[tool_call id=call_1 name=terminal arguments={"command": "df -h /home"}]' in turns[1].text
+    assert turns[2].role == "user"
+    assert "[tool_result id=call_1 name=terminal]" in turns[2].text
+    assert "467G available" in turns[2].text
