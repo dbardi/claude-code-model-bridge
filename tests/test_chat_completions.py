@@ -116,3 +116,27 @@ async def test_a_requested_tool_comes_back_as_a_tool_call(bridge):
     assert call.function.name == "terminal"
     assert json.loads(call.function.arguments) == {"command": "df -h /home"}
     assert completion.choices[0].finish_reason == "tool_calls"
+
+
+async def test_declared_tools_constrain_the_names_claude_may_request(bridge):
+    client, claude = bridge([structured_result_event("ok", [])])
+
+    await client.chat.completions.create(
+        model=MODEL,
+        messages=[{"role": "user", "content": "How much disk is free?"}],
+        tools=[TERMINAL_TOOL],
+    )
+
+    schema = claude.invocations[0].output_schema
+    call_properties = schema["properties"]["tool_calls"]["items"]["properties"]
+    assert call_properties["name"]["enum"] == ["terminal"]
+
+
+async def test_a_request_without_tools_is_unconstrained(bridge):
+    client, claude = bridge([result_event("pong")])
+
+    await client.chat.completions.create(
+        model=MODEL, messages=[{"role": "user", "content": "Say pong."}]
+    )
+
+    assert claude.invocations[0].output_schema is None
