@@ -37,16 +37,28 @@ def _turns(messages: list[dict[str, Any]]) -> tuple[Turn, ...]:
     to the user, the only role the CLI accepts them under.
     """
     tool_names = _tool_names(messages)
-    turns = []
+    turns: list[Turn] = []
     for message in messages:
         role = message["role"]
         if role in ("system", "developer"):
             continue
         if role == "tool":
-            turns.append(Turn(role="user", text=_tool_result_text(message, tool_names)))
+            _append(turns, Turn(role="user", text=_tool_result_text(message, tool_names)))
             continue
-        turns.append(Turn(role=role, text=_message_text(message)))
+        _append(turns, Turn(role=role, text=_message_text(message)))
     return tuple(turns)
+
+
+def _append(turns: list[Turn], turn: Turn) -> None:
+    """Adds a turn, merging it into the previous one when the role repeats.
+
+    The CLI expects roles to alternate, and tool results arrive as their own
+    messages that would otherwise stack up as consecutive user turns.
+    """
+    if turns and turns[-1].role == turn.role:
+        turns[-1] = Turn(role=turn.role, text=f"{turns[-1].text}\n\n{turn.text}")
+        return
+    turns.append(turn)
 
 
 def _tool_names(messages: list[dict[str, Any]]) -> dict[str, str]:
