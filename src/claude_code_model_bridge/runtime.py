@@ -17,11 +17,7 @@ DEFAULT_CATALOG = Path(__file__).with_name("models.yaml")
 
 @dataclass(frozen=True)
 class Settings:
-    """Everything the bridge needs to know to run.
-
-    Read once at startup so configuration lives in one place rather than
-    being rediscovered wherever it happens to be needed.
-    """
+    """Configuration for one running bridge, read once at startup."""
 
     catalog_path: Path = field(default_factory=lambda: DEFAULT_CATALOG)
     host: str = "127.0.0.1"

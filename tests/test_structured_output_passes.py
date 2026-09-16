@@ -1,10 +1,7 @@
 """Behavior when the CLI answers twice for one request.
 
-Captured from a real streaming, schema-constrained run: the CLI lets the
-model answer as plain text first, then injects a message of its own telling
-it to call the structured-output tool, and the model answers again. Both
-passes carry the same reply, so a bridge that forwards both says everything
-twice.
+Under a schema the CLI takes a plain-text answer, injects a message telling
+the model to call the structured-output tool, and takes a second answer.
 """
 
 import httpx

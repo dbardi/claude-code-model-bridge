@@ -8,11 +8,7 @@ import yaml
 
 @dataclass(frozen=True)
 class ModelEntry:
-    """One offered model.
-
-    `context_length` is advertised to callers, some of which refuse to start
-    against a model whose window looks too small to work in.
-    """
+    """One offered model. `context_length` is advertised to callers."""
 
     id: str
     cli_model: str
@@ -60,12 +56,7 @@ class ModelCatalog:
         )
 
     def resolve(self, model_id: str) -> Resolution:
-        """Resolves a requested id to a CLI model, and a thinking depth if asked for.
-
-        An id may carry an effort suffix (`some-model:high`). The suffix is
-        the more specific request, so it wins over any effort the caller sent
-        as a separate field.
-        """
+        """Resolves an id to a CLI model, plus the effort named by a `:suffix`."""
         name, effort = self._split_effort(model_id)
         for entry in self._entries:
             if entry.answers_to(name):

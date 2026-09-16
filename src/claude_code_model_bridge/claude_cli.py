@@ -9,8 +9,7 @@ from typing import Any, Protocol
 class Turn:
     """One conversation turn as the CLI's stream-json input expects it.
 
-    Each image is a (media type, base64 data) pair, ready to become an
-    image content block.
+    Each image is a (media type, base64 data) pair.
     """
 
     role: str
@@ -22,8 +21,7 @@ class Turn:
 class Invocation:
     """Everything needed to run Claude once.
 
-    `output_schema` is None when the caller declared no tools: an
-    unconstrained answer streams as plain text and costs no extra turn.
+    `output_schema` is None when no tools were declared.
     """
 
     model: str

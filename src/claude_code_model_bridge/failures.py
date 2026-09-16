@@ -74,11 +74,7 @@ def failure_in(events: list[dict[str, Any]]) -> Failure | None:
 
 
 def _reported_status(result: dict[str, Any]) -> Failure | None:
-    """Uses the status the run reported, when it reported one.
-
-    The CLI names the cause of some failures outright, which beats
-    inferring it from wording that changes between releases.
-    """
+    """Uses the status the run reported, when it reported one."""
     if result.get("api_error_status") != 404:
         return None
     return Failure(
@@ -97,11 +93,7 @@ def _seconds_until(resets_at: int | None) -> int | None:
 
 
 def _resets_at(events: list[dict[str, Any]]) -> int | None:
-    """When the usage window reopens, if the run reported it as closed.
-
-    Every run reports the window, including successful ones, so only a
-    window that is not currently allowing work says anything useful here.
-    """
+    """When the usage window reopens, for a window that is not allowing work."""
     for event in reversed(events):
         if event.get("type") != "rate_limit_event":
             continue
