@@ -1,5 +1,6 @@
 """Translates between the OpenAI protocol and the Claude CLI's events."""
 
+import json
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -19,6 +20,11 @@ def build_invocation(request: dict[str, Any]) -> Invocation:
 
 def completion_from_events(events: list[dict[str, Any]], model: str) -> dict[str, Any]:
     """Assembles the OpenAI completion body from the events one invocation produced."""
+    result = _result(events)
+    tool_calls = _tool_calls(result)
+    message: dict[str, Any] = {"role": "assistant", "content": _answer(result)}
+    if tool_calls:
+        message["tool_calls"] = tool_calls
     return {
         "id": f"chatcmpl-{uuid.uuid4().hex}",
         "object": "chat.completion",
@@ -27,18 +33,44 @@ def completion_from_events(events: list[dict[str, Any]], model: str) -> dict[str
         "choices": [
             {
                 "index": 0,
-                "message": {"role": "assistant", "content": _answer(events)},
-                "finish_reason": "stop",
+                "message": message,
+                "finish_reason": "tool_calls" if tool_calls else "stop",
             }
         ],
     }
 
 
-def _answer(events: list[dict[str, Any]]) -> str:
+def _result(events: list[dict[str, Any]]) -> dict[str, Any]:
     for event in reversed(events):
         if event.get("type") == "result":
-            return event.get("result", "")
-    return ""
+            return event
+    return {}
+
+
+def _answer(result: dict[str, Any]) -> str:
+    """The assistant's prose, preferring the schema-validated copy when present."""
+    structured = result.get("structured_output")
+    if isinstance(structured, dict):
+        return structured.get("content", "")
+    return result.get("result", "")
+
+
+def _tool_calls(result: dict[str, Any]) -> list[dict[str, Any]]:
+    """Converts Claude's structured tool requests into OpenAI tool calls."""
+    structured = result.get("structured_output")
+    if not isinstance(structured, dict):
+        return []
+    return [
+        {
+            "id": f"call_{uuid.uuid4().hex[:24]}",
+            "type": "function",
+            "function": {
+                "name": requested["name"],
+                "arguments": json.dumps(requested.get("arguments", {})),
+            },
+        }
+        for requested in structured.get("tool_calls", [])
+    ]
 
 
 async def stream_chunks(
