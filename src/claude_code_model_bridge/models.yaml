@@ -7,12 +7,23 @@
 # `cli_model` is passed to `claude --model`. It can differ from the id served
 # to callers, which is how a bracketed CLI variant gets an id that is
 # comfortable to type and to put in a configuration file.
+#
+# `aliases` are extra names an entry answers to, for typing a short name
+# instead of a full one.
+
+# An id that matches no entry but starts with one of these is passed to the
+# CLI unchanged, so a model released after this file was written is usable
+# without editing it. Such a model is not listed by /v1/models, and the CLI
+# rejects the id if it turns out not to exist.
+passthrough_prefixes:
+  - claude-
 
 models:
   - id: claude-opus-5
     cli_model: claude-opus-5
     context_length: 1000000
     supports_vision: true
+    aliases: [opus]
 
   - id: claude-opus-5-1m
     cli_model: claude-opus-5[1m]
@@ -23,11 +34,13 @@ models:
     cli_model: claude-sonnet-5
     context_length: 1000000
     supports_vision: true
+    aliases: [sonnet]
 
   - id: claude-haiku-4-5
     cli_model: claude-haiku-4-5
     context_length: 200000
     supports_vision: true
+    aliases: [haiku]
 
   - id: claude-fable-5-1
     cli_model: claude-fable-5-1

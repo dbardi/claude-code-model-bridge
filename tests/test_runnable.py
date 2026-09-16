@@ -3,6 +3,7 @@
 import asyncio
 
 import httpx
+import yaml
 from openai import AsyncOpenAI
 
 from claude_code_model_bridge.catalog import ModelCatalog
@@ -86,6 +87,28 @@ def test_the_shipped_catalog_is_usable():
     for model in models:
         assert model["context_length"] >= 64_000, model["id"]
         assert catalog.resolve(model["id"]).cli_model
+
+
+def test_every_shipped_alias_reaches_its_model():
+    catalog = ModelCatalog.from_yaml(DEFAULT_CATALOG.read_text())
+    entries = yaml.safe_load(DEFAULT_CATALOG.read_text())["models"]
+
+    aliased = [entry for entry in entries if entry.get("aliases")]
+    assert aliased, "the shipped catalog declares no short aliases"
+    for entry in aliased:
+        for alias in entry["aliases"]:
+            assert catalog.resolve(alias).cli_model == entry["cli_model"]
+
+
+def test_a_model_released_after_this_catalog_still_works():
+    """A new model should not need a catalog update to be usable."""
+    document = yaml.safe_load(DEFAULT_CATALOG.read_text())
+    prefixes = document.get("passthrough_prefixes", [])
+    assert prefixes, "the shipped catalog declares no pass-through family"
+
+    catalog = ModelCatalog.from_yaml(DEFAULT_CATALOG.read_text())
+    unreleased = f"{prefixes[0]}something-not-out-yet"
+    assert catalog.resolve(unreleased).cli_model == unreleased
 
 
 def test_settings_have_usable_defaults():
