@@ -91,8 +91,14 @@ check_prerequisites() {
 write_unit() {
   # The service runs the console script from the project's own virtual
   # environment, and needs the directory holding `claude` on PATH.
+  # ~/.local/bin is always included too: Claude Code's native installer puts
+  # `claude` there, so switching install methods later doesn't break the unit.
   local claude_dir
   claude_dir="$(dirname "$(command -v claude)")"
+  local unit_path="$claude_dir"
+  if [ "$claude_dir" != "$HOME/.local/bin" ]; then
+    unit_path="$HOME/.local/bin:$claude_dir"
+  fi
 
   mkdir -p "$UNIT_DIR"
   if [ -f "$UNIT_FILE" ]; then
@@ -111,7 +117,7 @@ StartLimitIntervalSec=0
 Type=simple
 ExecStart=$REPO_DIR/.venv/bin/claude-code-model-bridge
 WorkingDirectory=$REPO_DIR
-Environment="PATH=$claude_dir:/usr/local/bin:/usr/bin:/bin"
+Environment="PATH=$unit_path:/usr/local/bin:/usr/bin:/bin"
 Environment="CLAUDE_BRIDGE_HOST=$HOST"
 Environment="CLAUDE_BRIDGE_PORT=$PORT"
 Restart=always
