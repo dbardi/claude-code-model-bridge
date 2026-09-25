@@ -47,9 +47,11 @@ class ClaudeProcess:
         environment: dict[str, str] | None = None,
         total_seconds: float = 900,
         silence_seconds: float = 300,
+        plugin_dir: Path | None = None,
     ) -> None:
         self._total_seconds = total_seconds
         self._silence_seconds = silence_seconds
+        self._plugin_dir = plugin_dir
         self._executable = executable
         source = dict(environment) if environment is not None else dict(os.environ)
         self._environment = {
@@ -138,7 +140,7 @@ class ClaudeProcess:
             "",
             "--strict-mcp-config",
             "--tools",
-            "",
+            "Skill" if self._plugin_dir is not None else "",
             "--no-session-persistence",
             "--input-format",
             "stream-json",
@@ -151,6 +153,8 @@ class ClaudeProcess:
             "--system-prompt-file",
             str(prompt_file),
         ]
+        if self._plugin_dir is not None:
+            arguments += ["--plugin-dir", str(self._plugin_dir)]
         if invocation.output_schema is not None:
             arguments += ["--json-schema", json.dumps(invocation.output_schema)]
         if invocation.effort:

@@ -23,6 +23,8 @@ class Settings:
     host: str = "127.0.0.1"
     port: int = 8765
     max_concurrent: int = 4
+    plugin_dir: Path | None = None
+    """A directory of plugins to load per call; skills come from here."""
 
     @classmethod
     def from_environment(cls, environment: dict[str, str] | None = None) -> "Settings":
@@ -33,7 +35,12 @@ class Settings:
             host=source.get("CLAUDE_BRIDGE_HOST", "127.0.0.1"),
             port=int(source.get("CLAUDE_BRIDGE_PORT", "8765")),
             max_concurrent=int(source.get("CLAUDE_BRIDGE_MAX_CONCURRENT", "4")),
+            plugin_dir=_path_or_none(source.get("CLAUDE_BRIDGE_PLUGIN_DIR")),
         )
+
+
+def _path_or_none(value: str | None) -> Path | None:
+    return Path(value) if value else None
 
 
 def build_application(
@@ -41,7 +48,7 @@ def build_application(
 ) -> Starlette:
     """Builds the application, running the real CLI unless given another."""
     return create_app(
-        claude_cli=claude_cli or ClaudeProcess(),
+        claude_cli=claude_cli or ClaudeProcess(plugin_dir=settings.plugin_dir),
         catalog=ModelCatalog.from_yaml(settings.catalog_path.read_text()),
         max_concurrent=settings.max_concurrent,
     )

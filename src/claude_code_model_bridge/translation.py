@@ -8,7 +8,6 @@ from typing import Any
 
 from claude_code_model_bridge.catalog import Resolution
 from claude_code_model_bridge.claude_cli import Invocation, Turn
-from claude_code_model_bridge.json_text import StringFieldReader
 
 CONTINUE = "Continue."
 """Closing turn for a conversation that ends on an assistant message."""
@@ -17,15 +16,36 @@ CONTINUE = "Continue."
 def build_invocation(request: dict[str, Any], resolution: Resolution) -> Invocation:
     """Turns an OpenAI chat completion request into a single Claude invocation."""
     messages = request["messages"]
+    tools = request.get("tools") or []
     return Invocation(
         model=resolution.cli_model,
         turns=_turns(messages),
-        output_schema=_output_schema(
-            request.get("tools") or [], request.get("tool_choice")
-        ),
-        system_prompt=_system_prompt(messages),
+        output_schema=_output_schema(tools, request.get("tool_choice")),
+        system_prompt=_system_prompt(messages) + _tool_documentation(tools),
         effort=resolution.effort or request.get("reasoning_effort"),
     )
+
+
+def _tool_documentation(tools: list[dict[str, Any]]) -> str:
+    """Describes the declared tools, since the schema carries only their names."""
+    if not tools:
+        return ""
+    described = "\n\n".join(_described(tool["function"]) for tool in tools)
+    return (
+        "\n\n# Tools you may call\n\n"
+        "Put calls in `tool_calls`, using the arguments each tool declares. "
+        "Their results come back in the conversation before you answer.\n\n"
+        f"{described}"
+    )
+
+
+def _described(function: dict[str, Any]) -> str:
+    lines = [f"## {function['name']}"]
+    if function.get("description"):
+        lines.append(function["description"])
+    if function.get("parameters"):
+        lines.append(f"Arguments: {json.dumps(function['parameters'])}")
+    return "\n".join(lines)
 
 
 def _system_prompt(messages: list[dict[str, Any]]) -> str:
@@ -243,8 +263,9 @@ async def stream_chunks(
 ) -> AsyncIterator[dict[str, Any]]:
     """Emits an OpenAI chunk per fragment of text.
 
-    Under a schema the CLI answers twice, as plain text then as structured
-    output; only the structured answer is forwarded.
+    Under a schema the CLI may answer several times, as plain text and then
+    as one or more structured answers. Only the last answer is the reply, so
+    it is sent once the run ends rather than streamed as it arrives.
     """
     completion_id = f"chatcmpl-{uuid.uuid4().hex}"
     created = int(time.time())
@@ -263,15 +284,12 @@ async def stream_chunks(
     tool_calls: list[dict[str, Any]] = []
     answer = ""
     said_anything = False
-    prose = StringFieldReader("content")
     async for event in events:
-        if schema_mode:
-            text = prose.feed(_json_fragment(event))
-        else:
+        if not schema_mode:
             text = _text_fragment(event)
-        if text:
-            said_anything = True
-            yield chunk({"content": text}, None)
+            if text:
+                said_anything = True
+                yield chunk({"content": text}, None)
         if event.get("type") == "result":
             usage = _usage(event)
             tool_calls = _tool_calls(event)

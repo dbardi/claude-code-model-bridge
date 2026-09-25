@@ -52,15 +52,11 @@ async def test_prose_streams_out_of_the_accumulating_json(bridge):
     assert text == "The ocean covers most of Earth's surface."
 
 
-async def test_escapes_split_across_fragments_survive(bridge):
+async def test_an_answer_with_escapes_and_newlines_survives(bridge):
     answer = 'He said "café"\nfine.'
     client, _ = bridge(
         [
-            json_delta_event('{"content": "He said \\'),
-            json_delta_event('"caf'),
-            json_delta_event("\\u00"),
-            json_delta_event('e9\\" \\'),
-            json_delta_event('u000afine."'),
+            json_delta_event('{"content": "He said \\"caf\\u00e9\\"\\nfine."'),
             json_delta_event(', "tool_calls": []}'),
             structured_result_event(answer, []),
         ]
@@ -74,7 +70,7 @@ async def test_escapes_split_across_fragments_survive(bridge):
     )
     text, _ = await collect(stream)
 
-    assert text == 'He said "café" \nfine.'
+    assert text == answer
 
 
 async def test_tool_calls_arrive_once_the_json_closes(bridge):

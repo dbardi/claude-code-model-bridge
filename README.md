@@ -37,6 +37,7 @@ Configuration comes from the environment:
 | `CLAUDE_BRIDGE_PORT` | `8765` | Port to bind |
 | `CLAUDE_BRIDGE_CATALOG` | the shipped `models.yaml` | Path to a catalog file |
 | `CLAUDE_BRIDGE_MAX_CONCURRENT` | `4` | How many calls may run at once |
+| `CLAUDE_BRIDGE_PLUGIN_DIR` | unset | Directory of plugins whose skills the model may use |
 
 ## Installing it as a service
 
@@ -205,6 +206,32 @@ An id is resolved per request, so switching models needs no restart.
 Models are data, not code. Edit `models.yaml` (or point
 `CLAUDE_BRIDGE_CATALOG` at your own) to add an entry, rename one, or declare a
 different alias, then restart.
+
+## Skills
+
+Claude Code skills are off unless a plugin directory is configured:
+
+```bash
+CLAUDE_BRIDGE_PLUGIN_DIR=/path/to/plugins uv run claude-code-model-bridge
+```
+
+The directory holds plugins (each with `.claude-plugin/plugin.json` and a
+`skills/` folder). The model then chooses a skill on its own when one fits.
+
+Two things to weigh before turning this on.
+
+**It costs tokens on every call.** One small skill measured 6,498 prompt
+tokens per request against 370 with no plugin directory. Every call pays it,
+whether a skill is used or not.
+
+**Only instruction-style skills work**: writing style, review checklists,
+domain knowledge. A skill that tells the model to read files or run commands
+cannot act, because the CLI's own tools stay off so the client keeps tool
+execution. Loading such a skill invites the model to describe work it never
+did. Skills that need to act belong in the client, which runs tool calls.
+
+Configuring a directory allows exactly one tool, `Skill`, which loads
+instructions and runs nothing.
 
 ## Request fields
 
